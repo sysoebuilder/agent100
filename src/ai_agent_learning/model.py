@@ -22,9 +22,14 @@ class ArkModelClient(ModelClient):
     def create_response(self, requset: ModelRequest) -> ModelResponse:
         response = self._client.responses.create(
             model=requset.model,
-            previous_response_id=requset.previous_response_id,
             store=True,
-            input=requset.messages[-1].content,
+            input=[
+                {
+                    "role": message.role,
+                    "content": message.content,
+                }
+                for message in requset.messages
+            ],
             )
 
         if(response.output_text is None):
