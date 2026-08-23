@@ -1,4 +1,4 @@
-from ai_agent_learning.schema import ModelRequest, ModelResponse, Message
+from ai_agent_learning.schema import ModelRequest, ModelResponse, Message, TaskPlan
 from openai import OpenAI
 import httpx
 import os
@@ -45,6 +45,25 @@ class ArkModelClient(ModelClient):
             message=Message(role="assistant", content=response.output_text),
             response_id=response.id,
         )
+
+    def create_task_plan(self, requset: ModelRequest) -> TaskPlan:
+        response = self._client.responses.parse(
+            model=requset.model,
+            store=True,
+            input=[
+                {
+                    "role": message.role,
+                    "content": message.content,
+                }
+                for message in requset.messages
+            ],
+            text_format=TaskPlan,
+            )
+        
+        if(response.output_parsed is None):
+            raise ValueError("response.output_parsed is None")
+
+        return response.output_parsed
 
     def tokenization(self, messages: list[Message], model: str) -> int:
         response = httpx.post(

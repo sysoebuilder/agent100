@@ -1,6 +1,6 @@
 from pydantic import Field, BaseModel
 from typing import Literal
-import uuid
+from pydantic import ConfigDict, Field
 from uuid import uuid4
 
 
@@ -24,4 +24,29 @@ class Session(BaseModel):
     name: str = Field(default="")
     response_id: str | None = None
     messages: list[Message] = Field(default_factory=list)
-    
+
+class Step(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: str = Field(
+        min_length=1,
+        pattern=r"^step_[1-9][0-9]*$"
+    )
+    title: str = Field(
+        min_length=1,
+        max_length=300
+    )
+    completion_condition: str = Field(
+        min_length=1,
+        max_length=300
+    )
+
+
+class TaskPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=1)
+    steps: list[Step] = Field(
+        min_length=1,
+        max_length=10
+    )

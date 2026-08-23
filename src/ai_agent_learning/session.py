@@ -76,5 +76,3 @@ def select_session() -> Session:
             return sessions[index]
 
         print("会话编号不存在")
-
-    

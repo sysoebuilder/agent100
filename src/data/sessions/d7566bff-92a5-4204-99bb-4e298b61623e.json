@@ -1,0 +1,15 @@
+{
+  "session_id": "d7566bff-92a5-4204-99bb-4e298b61623e",
+  "name": "我想学习一下github的使用，你帮我列",
+  "response_id": null,
+  "messages": [
+    {
+      "role": "user",
+      "content": "我想学习一下github的使用，你帮我列个学习计划"
+    },
+    {
+      "role": "assistant",
+      "content": "{\"goal\":\"系统掌握GitHub的使用方法，具备独立进行代码托管、团队协作、参与开源项目的能力\",\"steps\":[{\"step_id\":\"step_1\",\"title\":\"理解Git与GitHub核心概念，完成账号注册与本地环境配置\",\"completion_condition\":\"能够明确区分Git与GitHub的作用，成功注册GitHub账号，本地完成Git安装、用户信息配置，验证SSH方式可正常连接GitHub\"},{\"step_id\":\"step_2\",\"title\":\"掌握Git本地仓库的基础操作逻辑与常用命令\",\"completion_condition\":\"可独立完成本地仓库初始化、文件暂存、提交、日志查看、版本回退操作，清晰理解工作区、暂存区、版本库三者关系\"},{\"step_id\":\"step_3\",\"title\":\"掌握本地仓库与GitHub远程仓库的基础交互\",\"completion_condition\":\"能独立创建GitHub远程仓库，完成本地仓库与远程的关联，可正常推送本地提交、克隆远程仓库、拉取远程最新更新\"},{\"step_id\":\"step_4\",\"title\":\"掌握Git分支管理及冲突处理方法\",\"completion_condition\":\"可独立完成分支的创建、切换、合并、删除操作，能正确处理分支合并时的代码冲突，可在GitHub上管理远程分支\"},{\"step_id\":\"step_5\",\"title\":\"掌握Fork与Pull Request开源协作流程\",\"completion_condition\":\"能独立Fork目标开源仓库，完成本地修改后向原仓库提交Pull Request，可跟进PR评论反馈并更新内容，熟悉开源项目常规PR规范\"},{\"step_id\":\"step_6\",\"title\":\"掌握GitHub内置项目协作工具的使用\",\"completion_condition\":\"能熟练使用Issue进行问题反馈与任务跟踪，使用Projects搭建任务看板，通过Wiki编写项目文档，掌握标签、里程碑的配置方法\"},{\"step_id\":\"step_7\",\"title\":\"掌握GitHub常用进阶配置与效率技巧\",\"completion_condition\":\"能正确编写.gitignore文件过滤非必要提交文件，会使用标签管理发布版本，掌握GitHub高级搜索语法查找目标项目，了解GitHub Pages基本用法\"},{\"step_id\":\"step_8\",\"title\":\"完成GitHub实战演练，形成日常使用习惯\",\"completion_condition\":\"将1个个人项目完整托管到GitHub并规范提交记录，至少参与1个开源项目的Issue互动或提交1次有效PR，日常开发可熟练使用Git/GitHub管理代码\"}]}"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 from ai_agent_learning.model import ArkModelClient
 from ai_agent_learning.schema import ModelRequest, ModelResponse, Message, Session
 from ai_agent_learning.session import save_session, load_session, clear_session, create_session_name, select_session
+from ai_agent_learning.TaskPlan import show_task_plan, validate_task_plan
 import os
 from dotenv import load_dotenv
 
@@ -19,39 +20,80 @@ session = select_session()
 messages = session.messages
 
 while(True):
-    content = input("请输入消息: ").strip()
-    if not content:
-        print("消息不能为空")
-        continue
+    print("1. 普通对话")
+    print("2. 任务计划")
+    choice = input("请选择会话模式: ").strip()
 
-    if(content == "exit" or content == "quit"):
+    if choice == "quit" or choice == "exit":
         break
 
-    if not session.name.strip():
-        session.name = create_session_name(content)
-    
-    messages.append(Message(role="user", content=content))
+    if choice == "1":
+        content = input("请输入消息: ").strip()
+        if not content:
+            print("消息不能为空")
+            continue
 
-    if(client.is_context_limit(messages, TOKENIZER_MODEL)):
-        old_messages = messages[:-KEEP_RECENT]
-        recent_messages = messages[-KEEP_RECENT:]
+        if(content == "exit" or content == "quit"):
+            break
 
-        if old_messages:
-            summary = client.compact_context(old_messages, REASONING_ID)
-            messages[:] = [summary, *recent_messages]
-    
-    request = ModelRequest(
-        messages=messages,
-        model=REASONING_ID,
-        previous_response_id=None,
-    )
+        if not session.name.strip():
+            session.name = create_session_name(content)
+        
+        messages.append(Message(role="user", content=content))
 
-    response = client.create_response(request)
-    messages.append(response.message)
-    session.response_id = response.response_id
-    
-    print(f"助手: {response.message.content}")
+        if(client.is_context_limit(messages, TOKENIZER_MODEL)):
+            old_messages = messages[:-KEEP_RECENT]
+            recent_messages = messages[-KEEP_RECENT:]
 
+            if old_messages:
+                summary = client.compact_context(old_messages, REASONING_ID)
+                messages[:] = [summary, *recent_messages]
+        
+        request = ModelRequest(
+            messages=messages,
+            model=REASONING_ID,
+            previous_response_id=None,
+        )
+
+        response = client.create_response(request)
+        messages.append(response.message)
+        session.response_id = response.response_id
+        
+        print(f"助手: {response.message.content}")
+
+    elif choice == "2":
+        content = input("请输入任务目标: ").strip()
+        if not content:
+            print("任务目标不能为空")
+            continue
+
+        if(content == "exit" or content == "quit"):
+            break
+
+        if not session.name.strip():
+            session.name = create_session_name(content)
+        
+        messages.append(Message(role="user", content=content))
+
+        if(client.is_context_limit(messages, TOKENIZER_MODEL)):
+            old_messages = messages[:-KEEP_RECENT]
+            recent_messages = messages[-KEEP_RECENT:]
+
+            if old_messages:
+                summary = client.compact_context(old_messages, REASONING_ID)
+                messages[:] = [summary, *recent_messages]
+        
+        request = ModelRequest(
+            messages=messages,
+            model=REASONING_ID,
+            previous_response_id=None,
+        )
+
+        plan = client.create_task_plan(request)
+        validate_task_plan(plan)
+        show_task_plan(plan)
+        messages.append(Message(role="assistant", content=plan.model_dump_json()))
+        
 if messages:
     file_path = save_session(session)
         
