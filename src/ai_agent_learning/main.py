@@ -3,99 +3,108 @@ from ai_agent_learning.schema import ModelRequest, ModelResponse, Message, Sessi
 from ai_agent_learning.session import save_session, load_session, clear_session, create_session_name, select_session
 from ai_agent_learning.TaskPlan import show_task_plan, validate_task_plan
 import os
+import asyncio
 from dotenv import load_dotenv
 
 REASONING_ID = "ep-20260814170727-bsp2n"
 TOKENIZER_MODEL = "doubao-seed-evolving"
 KEEP_RECENT = 6
 
-load_dotenv()
+async def main():
 
-client = ArkModelClient(
-    api_key=os.environ["ARK_API_KEY"],
-    base_url="https://ark.cn-beijing.volces.com/api/v3",
-)
+    load_dotenv()
 
-session = select_session()
-messages = session.messages
+    client = ArkModelClient(
+        api_key=os.environ["ARK_API_KEY"],
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+    )
 
-while(True):
-    print("1. 普通对话")
-    print("2. 任务计划")
-    choice = input("请选择会话模式: ").strip()
+    session = select_session()
+    messages = session.messages
 
-    if choice == "quit" or choice == "exit":
-        break
+    try:
+        while(True):
+            print("1. 普通对话")
+            print("2. 任务计划")
+            choice = input("请选择会话模式: ").strip()
 
-    if choice == "1":
-        content = input("请输入消息: ").strip()
-        if not content:
-            print("消息不能为空")
-            continue
+            if choice == "quit" or choice == "exit":
+                break
 
-        if(content == "exit" or content == "quit"):
-            break
+            if choice == "1":
+                content = input("请输入消息: ").strip()
+                if not content:
+                    print("消息不能为空")
+                    continue
 
-        if not session.name.strip():
-            session.name = create_session_name(content)
+                if(content == "exit" or content == "quit"):
+                    break
+
+                if not session.name.strip():
+                    session.name = create_session_name(content)
+                
+                messages.append(Message(role="user", content=content))
+
+                if(await client.is_context_limit(messages, TOKENIZER_MODEL)):
+                    old_messages = messages[:-KEEP_RECENT]
+                    recent_messages = messages[-KEEP_RECENT:]
+
+                    if old_messages:
+                        summary = await client.compact_context(old_messages, REASONING_ID)
+                        messages[:] = [summary, *recent_messages]
+                
+                request = ModelRequest(
+                    messages=messages,
+                    model=REASONING_ID,
+                    previous_response_id=None,
+                )
+
+                response = await client.create_response(request)
+                messages.append(response.message)
+                session.response_id = response.response_id
+                
+                print(f"助手: {response.message.content}")
+
+            elif choice == "2":
+                content = input("请输入任务目标: ").strip()
+                if not content:
+                    print("任务目标不能为空")
+                    continue
+
+                if(content == "exit" or content == "quit"):
+                    break
+
+                if not session.name.strip():
+                    session.name = create_session_name(content)
+                
+                messages.append(Message(role="user", content=content))
+
+                if(await client.is_context_limit(messages, TOKENIZER_MODEL)):
+                    old_messages = messages[:-KEEP_RECENT]
+                    recent_messages = messages[-KEEP_RECENT:]
+
+                    if old_messages:
+                        summary = await client.compact_context(old_messages, REASONING_ID)
+                        messages[:] = [summary, *recent_messages]
+                
+                request = ModelRequest(
+                    messages=messages,
+                    model=REASONING_ID,
+                    previous_response_id=None,
+                )
+
+                plan = await client.create_task_plan(request)
+                validate_task_plan(plan)
+                show_task_plan(plan)
+                messages.append(Message(role="assistant", content=plan.model_dump_json()))
+                
+        if messages:
+            file_path = save_session(session)
+
+    finally:
+        await client.close()
         
-        messages.append(Message(role="user", content=content))
-
-        if(client.is_context_limit(messages, TOKENIZER_MODEL)):
-            old_messages = messages[:-KEEP_RECENT]
-            recent_messages = messages[-KEEP_RECENT:]
-
-            if old_messages:
-                summary = client.compact_context(old_messages, REASONING_ID)
-                messages[:] = [summary, *recent_messages]
-        
-        request = ModelRequest(
-            messages=messages,
-            model=REASONING_ID,
-            previous_response_id=None,
-        )
-
-        response = client.create_response(request)
-        messages.append(response.message)
-        session.response_id = response.response_id
-        
-        print(f"助手: {response.message.content}")
-
-    elif choice == "2":
-        content = input("请输入任务目标: ").strip()
-        if not content:
-            print("任务目标不能为空")
-            continue
-
-        if(content == "exit" or content == "quit"):
-            break
-
-        if not session.name.strip():
-            session.name = create_session_name(content)
-        
-        messages.append(Message(role="user", content=content))
-
-        if(client.is_context_limit(messages, TOKENIZER_MODEL)):
-            old_messages = messages[:-KEEP_RECENT]
-            recent_messages = messages[-KEEP_RECENT:]
-
-            if old_messages:
-                summary = client.compact_context(old_messages, REASONING_ID)
-                messages[:] = [summary, *recent_messages]
-        
-        request = ModelRequest(
-            messages=messages,
-            model=REASONING_ID,
-            previous_response_id=None,
-        )
-
-        plan = client.create_task_plan(request)
-        validate_task_plan(plan)
-        show_task_plan(plan)
-        messages.append(Message(role="assistant", content=plan.model_dump_json()))
-        
-if messages:
-    file_path = save_session(session)
-        
+if __name__ == "__main__":
+    asyncio.run(main())
 
 

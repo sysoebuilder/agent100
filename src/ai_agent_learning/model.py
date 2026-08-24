@@ -1,7 +1,7 @@
 from ai_agent_learning.schema import ModelRequest, ModelResponse, Message, TaskPlan
-from openai import OpenAI
+from ai_agent_learning.retry import retry_async
+from openai import AsyncOpenAI
 import httpx
-import os
 
 CONTEXT_LIMIT = 1_000_000
 
@@ -20,13 +20,24 @@ class ArkModelClient(ModelClient):
     ):
         self._api_key = api_key
         self._base_url = base_url
-        self._client = OpenAI(
+        self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
         )
+        self._http_client = httpx.AsyncClient(
+            base_url=base_url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=httpx.Timeout(
+                30.0,
+                connect=5.0,
+            ),
+        )
 
-    def create_response(self, requset: ModelRequest) -> ModelResponse:
-        response = self._client.responses.create(
+    async def create_response(self, requset: ModelRequest) -> ModelResponse:
+        response = await self._client.responses.create(
             model=requset.model,
             store=True,
             input=[
@@ -46,8 +57,8 @@ class ArkModelClient(ModelClient):
             response_id=response.id,
         )
 
-    def create_task_plan(self, requset: ModelRequest) -> TaskPlan:
-        response = self._client.responses.parse(
+    async def create_task_plan(self, requset: ModelRequest) -> TaskPlan:
+        response = await self._client.responses.parse(
             model=requset.model,
             store=True,
             input=[
@@ -65,23 +76,23 @@ class ArkModelClient(ModelClient):
 
         return response.output_parsed
 
-    def tokenization(self, messages: list[Message], model: str) -> int:
-        response = httpx.post(
-            f"{self._base_url}/tokenization",
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "text": [
-                    f"{message.role}: {message.content}"
-                    for message in messages
-                ],
-            },
-            timeout=30,
-        )
-        response.raise_for_status()
+    async def tokenization(self, messages: list[Message], model: str) -> int:
+        async def create_request() -> httpx.Response:
+            response = await self._http_client.post(
+                "tokenization",
+                json={
+                    "model": model,
+                    "text": [
+                        f"{message.role}: {message.content}"
+                        for message in messages
+                    ],
+                },
+            )
+            response.raise_for_status()
+            return response
+
+        response = await retry_async(create_request, max_attempts=3)
+        
         result = response.json()
         total_tokens = sum(
             item["total_tokens"]
@@ -90,11 +101,11 @@ class ArkModelClient(ModelClient):
         return total_tokens
 
 
-    def is_context_limit(self, messages: list[Message], model: str) -> bool:
-        total_tokens = self.tokenization(messages, model)
+    async def is_context_limit(self, messages: list[Message], model: str) -> bool:
+        total_tokens = await self.tokenization(messages, model)
         return total_tokens > CONTEXT_LIMIT*0.8
 
-    def compact_context(self, messages: list[Message], model: str) -> Message:
+    async def compact_context(self, messages: list[Message], model: str) -> Message:
         compression_input = [
             {
                 "role": "system",
@@ -114,7 +125,7 @@ class ArkModelClient(ModelClient):
             ],
         ]
 
-        response = self._client.responses.create(
+        response = await self._client.responses.create(
             model=model,
             store=True,
             input=compression_input, # type: ignore
@@ -123,4 +134,7 @@ class ArkModelClient(ModelClient):
             raise ValueError("response.output_text is None")
 
         return Message(role="system", content=f"历史对话摘要: {response.output_text}")
-        
+
+    async def close(self) -> None:
+        await self._http_client.aclose()
+        await self._client.close()
