@@ -1,17 +1,20 @@
-from ai_agent_learning.model import ArkModelClient
-from ai_agent_learning.schema import ModelRequest, ModelResponse, Message, Session
-from ai_agent_learning.session import save_session, load_session, clear_session, create_session_name, select_session
-from ai_agent_learning.TaskPlan import show_task_plan, validate_task_plan
-import os
 import asyncio
+import os
+
 from dotenv import load_dotenv
+
+from ai_agent_learning.conversation_service import ConversationService
+from ai_agent_learning.logging_config import configure_logging
+from ai_agent_learning.model import ArkModelClient
+from ai_agent_learning.session import create_session_name, save_session, select_session
+from ai_agent_learning.TaskPlan import show_task_plan, validate_task_plan
 
 REASONING_ID = "ep-20260814170727-bsp2n"
 TOKENIZER_MODEL = "doubao-seed-evolving"
 KEEP_RECENT = 6
 
 async def main():
-
+    configure_logging()
     load_dotenv()
 
     client = ArkModelClient(
@@ -19,8 +22,14 @@ async def main():
         base_url="https://ark.cn-beijing.volces.com/api/v3",
     )
 
+    conversation_service = ConversationService(
+        client=client,
+        reasoning_model=REASONING_ID,
+        tokenizer_model=TOKENIZER_MODEL,
+        keep_recent=KEEP_RECENT,
+    )
+
     session = select_session()
-    messages = session.messages
 
     try:
         while(True):
@@ -41,27 +50,15 @@ async def main():
                     break
 
                 if not session.name.strip():
-                    session.name = create_session_name(content)
-                
-                messages.append(Message(role="user", content=content))
+                    session.name = create_session_name(
+                        content,
+                        session_id=session.session_id,
+                    )
 
-                if(await client.is_context_limit(messages, TOKENIZER_MODEL)):
-                    old_messages = messages[:-KEEP_RECENT]
-                    recent_messages = messages[-KEEP_RECENT:]
-
-                    if old_messages:
-                        summary = await client.compact_context(old_messages, REASONING_ID)
-                        messages[:] = [summary, *recent_messages]
-                
-                request = ModelRequest(
-                    messages=messages,
-                    model=REASONING_ID,
-                    previous_response_id=None,
+                response = await conversation_service.chat(
+                    session=session,
+                    content=content,
                 )
-
-                response = await client.create_response(request)
-                messages.append(response.message)
-                session.response_id = response.response_id
                 
                 print(f"助手: {response.message.content}")
 
@@ -75,31 +72,20 @@ async def main():
                     break
 
                 if not session.name.strip():
-                    session.name = create_session_name(content)
-                
-                messages.append(Message(role="user", content=content))
+                    session.name = create_session_name(
+                        content,
+                        session_id=session.session_id,
+                    )
 
-                if(await client.is_context_limit(messages, TOKENIZER_MODEL)):
-                    old_messages = messages[:-KEEP_RECENT]
-                    recent_messages = messages[-KEEP_RECENT:]
-
-                    if old_messages:
-                        summary = await client.compact_context(old_messages, REASONING_ID)
-                        messages[:] = [summary, *recent_messages]
-                
-                request = ModelRequest(
-                    messages=messages,
-                    model=REASONING_ID,
-                    previous_response_id=None,
+                plan = await conversation_service.create_task_plan(
+                    session=session,
+                    content=content,
                 )
-
-                plan = await client.create_task_plan(request)
                 validate_task_plan(plan)
                 show_task_plan(plan)
-                messages.append(Message(role="assistant", content=plan.model_dump_json()))
                 
-        if messages:
-            file_path = save_session(session)
+        if session.messages:
+            save_session(session)
 
     finally:
         await client.close()
