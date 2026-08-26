@@ -67,9 +67,6 @@ def configure_logging(level: int = logging.INFO) -> None:
 
     formatter = JsonFormatter()
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-
     file_handler = RotatingFileHandler(
         filename=LOG_FILE,
         maxBytes=5 * 1024 * 1024,
