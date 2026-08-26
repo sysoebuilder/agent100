@@ -176,28 +176,28 @@ async def run_taskplan(goal: str | None = None):
 
     session = select_session()
 
-    while True:
+
+    if not goal:
+        goal = input("请输入任务目标: ").strip()
         if not goal:
-            goal = input("请输入任务目标: ").strip()
-            if not goal:
-                print("任务目标不能为空")
-                continue
+            print("任务目标不能为空")
+            return
 
-        if(goal == "exit" or goal == "quit"):
-            break
+    if(goal == "exit" or goal == "quit"):
+        return
 
-        if not session.name.strip():
-            session.name = create_session_name(
-                goal,
-                session_id=session.session_id,
-            )
-
-        plan = await conversation_service.create_task_plan(
-            session=session,
-            content=goal,
+    if not session.name.strip():
+        session.name = create_session_name(
+            goal,
+            session_id=session.session_id,
         )
-        validate_task_plan(plan)
-        show_task_plan(plan)
+
+    plan = await conversation_service.create_task_plan(
+        session=session,
+        content=goal,
+    )
+    validate_task_plan(plan)
+    show_task_plan(plan)
         
 if __name__ == "__main__":
     from ai_agent_learning.cli import main
