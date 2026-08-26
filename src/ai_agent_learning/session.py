@@ -7,11 +7,13 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from ai_agent_learning.schema import Session
+from ai_agent_learning.paths import get_data_dir
+
 
 
 logger = logging.getLogger(__name__)
 
-SESSION_DIR = Path(__file__).resolve().parents[1] / "data" / "sessions"
+SESSION_DIR = get_data_dir() / "sessions"
 
 
 def save_session(session: Session) -> Path:

@@ -1,0 +1,4 @@
+exclude .env
+prune data
+prune src/data
+global-exclude *.jsonl

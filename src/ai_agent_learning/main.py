@@ -1,30 +1,125 @@
-import asyncio
 import os
-
-from dotenv import load_dotenv
+from getpass import getpass
+from pathlib import Path
+from dotenv import load_dotenv, set_key
 
 from ai_agent_learning.conversation_service import ConversationService
 from ai_agent_learning.logging_config import configure_logging
 from ai_agent_learning.model import ArkModelClient
 from ai_agent_learning.session import create_session_name, save_session, select_session
-from ai_agent_learning.TaskPlan import show_task_plan, validate_task_plan
+from ai_agent_learning.paths import get_data_dir
+from ai_agent_learning.taskplan import show_task_plan, validate_task_plan
 
-REASONING_ID = "ep-20260814170727-bsp2n"
-TOKENIZER_MODEL = "doubao-seed-evolving"
-KEEP_RECENT = 6
 
-async def main():
+API_KEY_ENV = "ARK_API_KEY"
+REASONING_MODEL_ENV = "ARK_REASONING_MODEL"
+
+
+def ask_required(
+    prompt: str,
+    *,
+    secret: bool = False,
+) -> str:
+    reader = getpass if secret else input
+
+    while True:
+        try:
+            value = reader(prompt).strip()
+        except EOFError as error:
+            raise SystemExit(
+                "\n无法读取输入，配置已取消。"
+            ) from error
+
+        if value:
+            return value
+
+        print("输入不能为空，请重新输入。")
+
+
+def save_env_value(
+    env_file: Path,
+    name: str,
+    value: str,
+) -> None:
+    try:
+        env_file.touch(exist_ok=True)
+
+        set_key(
+            str(env_file),
+            name,
+            value,
+            quote_mode="always",
+        )
+    except OSError as error:
+        raise SystemExit(
+            f"无法保存配置文件：{env_file}"
+        ) from error
+
+    # 让本次运行立即使用刚输入的配置。
+    os.environ[name] = value
+
+
+def load_or_create_config() -> tuple[str, str]:
+    env_file = get_data_dir() / ".env"
+
+    # 系统环境变量优先，data/.env 只补充缺失配置。
+    load_dotenv(
+        env_file,
+        override=False,
+    )
+
+    api_key = os.getenv(API_KEY_ENV, "").strip()
+    reasoning_model = os.getenv(
+        REASONING_MODEL_ENV,
+        "",
+    ).strip()
+
+    if api_key and reasoning_model:
+        return api_key, reasoning_model
+
+    print("\n首次使用 llm-cli，需要完成模型配置。")
+    print(f"配置将保存到：{env_file}")
+    print("请勿将该文件提交到 Git。\n")
+
+    if not api_key:
+        api_key = ask_required(
+            "请输入 ARK API Key（输入内容不会显示）：",
+            secret=True,
+        )
+        save_env_value(
+            env_file,
+            API_KEY_ENV,
+            api_key,
+        )
+
+    if not reasoning_model:
+        reasoning_model = ask_required(
+            "请输入 ARK 模型端点 ID：",
+        )
+        save_env_value(
+            env_file,
+            REASONING_MODEL_ENV,
+            reasoning_model,
+        )
+
+    print("配置保存成功。\n")
+
+    return api_key, reasoning_model
+async def run_interactive():
     configure_logging()
-    load_dotenv()
+    api_key, reasoning_id = load_or_create_config()
+
+    TOKENIZER_MODEL = "doubao-seed-evolving"
+    KEEP_RECENT = 6
 
     client = ArkModelClient(
-        api_key=os.environ["ARK_API_KEY"],
+        api_key=api_key,
         base_url="https://ark.cn-beijing.volces.com/api/v3",
     )
 
     conversation_service = ConversationService(
         client=client,
-        reasoning_model=REASONING_ID,
+        reasoning_model=reasoning_id,
         tokenizer_model=TOKENIZER_MODEL,
         keep_recent=KEEP_RECENT,
     )
@@ -91,6 +186,8 @@ async def main():
         await client.close()
         
 if __name__ == "__main__":
-    asyncio.run(main())
+    from ai_agent_learning.cli import main
+
+    main()
 
 

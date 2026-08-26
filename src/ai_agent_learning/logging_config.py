@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from ai_agent_learning.paths import get_data_dir
 
-LOG_DIR = Path(__file__).resolve().parents[1] / "data" / "logs"
+LOG_DIR = get_data_dir() / "logs"
 LOG_FILE = LOG_DIR / "app.jsonl"
 
 
