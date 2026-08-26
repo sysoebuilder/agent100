@@ -105,7 +105,7 @@ def load_or_create_config() -> tuple[str, str]:
     print("配置保存成功。\n")
 
     return api_key, reasoning_model
-async def run_interactive():
+async def run_chat():
     configure_logging()
     api_key, reasoning_id = load_or_create_config()
 
@@ -128,66 +128,80 @@ async def run_interactive():
 
     try:
         while(True):
-            print("1. 普通对话")
-            print("2. 任务计划")
-            choice = input("请选择会话模式: ").strip()
+            content = input("请输入消息: ").strip()
+            if not content:
+                print("消息不能为空")
+                continue
 
-            if choice == "quit" or choice == "exit":
+            if(content == "exit" or content == "quit"):
                 break
 
-            if choice == "1":
-                content = input("请输入消息: ").strip()
-                if not content:
-                    print("消息不能为空")
-                    continue
-
-                if(content == "exit" or content == "quit"):
-                    break
-
-                if not session.name.strip():
-                    session.name = create_session_name(
-                        content,
-                        session_id=session.session_id,
-                    )
-
-                response = await conversation_service.chat(
-                    session=session,
-                    content=content,
+            if not session.name.strip():
+                session.name = create_session_name(
+                    content,
+                    session_id=session.session_id,
                 )
-                
-                print(f"助手: {response.message.content}")
 
-            elif choice == "2":
-                content = input("请输入任务目标: ").strip()
-                if not content:
-                    print("任务目标不能为空")
-                    continue
-
-                if(content == "exit" or content == "quit"):
-                    break
-
-                if not session.name.strip():
-                    session.name = create_session_name(
-                        content,
-                        session_id=session.session_id,
-                    )
-
-                plan = await conversation_service.create_task_plan(
-                    session=session,
-                    content=content,
-                )
-                validate_task_plan(plan)
-                show_task_plan(plan)
-                
+            response = await conversation_service.chat(
+                session=session,
+                content=content,
+            )
+            
+            print(f"助手: {response.message.content}")
+  
         if session.messages:
             save_session(session)
 
     finally:
         await client.close()
+
+async def run_taskplan(goal: str | None = None):
+    configure_logging()
+    api_key, reasoning_id = load_or_create_config()
+
+    TOKENIZER_MODEL = "doubao-seed-evolving"
+    KEEP_RECENT = 6
+
+    client = ArkModelClient(
+        api_key=api_key,
+        base_url="https://ark.cn-beijing.volces.com/api/v3",
+    )
+
+    conversation_service = ConversationService(
+        client=client,
+        reasoning_model=reasoning_id,
+        tokenizer_model=TOKENIZER_MODEL,
+        keep_recent=KEEP_RECENT,
+    )
+
+    session = select_session()
+
+    while True:
+        if not goal:
+            goal = input("请输入任务目标: ").strip()
+            if not goal:
+                print("任务目标不能为空")
+                continue
+
+        if(goal == "exit" or goal == "quit"):
+            break
+
+        if not session.name.strip():
+            session.name = create_session_name(
+                goal,
+                session_id=session.session_id,
+            )
+
+        plan = await conversation_service.create_task_plan(
+            session=session,
+            content=goal,
+        )
+        validate_task_plan(plan)
+        show_task_plan(plan)
         
 if __name__ == "__main__":
     from ai_agent_learning.cli import main
-
+    
     main()
 
 

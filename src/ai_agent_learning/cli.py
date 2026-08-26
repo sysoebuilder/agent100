@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from ai_agent_learning.main import run_interactive
+from ai_agent_learning.main import run_chat, run_taskplan
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -16,14 +16,45 @@ def create_parser() -> argparse.ArgumentParser:
         version="agent100 0.1.1",
     )
 
+    commands = parser.add_subparsers(
+        dest="command",
+        required=True,
+    )
+
+    commands.add_parser(
+        "chat",
+        help="进入多轮会话",
+    )
+
+    taskplan_parser = commands.add_parser(
+        "taskplan",
+        help="生成任务计划",
+    )
+
+    taskplan_parser.add_argument(
+        "goal",
+        nargs="?",
+        help="需要规划的任务目标",
+    )
+
+
     return parser
 
 
 def main() -> None:
-    parser = create_parser()
-    parser.parse_args()
+    args = create_parser().parse_args()
 
     try:
-        asyncio.run(run_interactive())
+        if args.command == "chat":
+            asyncio.run(run_chat())
+
+        elif args.command == "taskplan":
+            asyncio.run(
+                run_taskplan(args.goal)
+            )
+
     except KeyboardInterrupt:
         print("\n已退出")
+        
+    
+    

@@ -78,7 +78,6 @@ def configure_logging(level: int = logging.INFO) -> None:
     root_logger = logging.getLogger()
     root_logger.handlers.clear()
     root_logger.setLevel(level)
-    root_logger.addHandler(console_handler)
     root_logger.addHandler(file_handler)
 
     # 减少第三方 HTTP 库产生的普通请求日志。
