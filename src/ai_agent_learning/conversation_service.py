@@ -6,11 +6,9 @@ from ai_agent_learning.model import ArkModelClient
 from ai_agent_learning.schema import (
     Message,
     ModelRequest,
-    ModelResponse,
     Session,
     TaskPlan,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -85,15 +83,13 @@ class ConversationService:
             ),
         )
 
-        compact_limit = int(
-            self._context_limit * self._compact_threshold
-        )
+        compact_limit = int(self._context_limit * self._compact_threshold)
 
         if input_tokens <= compact_limit:
             return input_tokens
 
-        old_messages = session.messages[:-self._keep_recent]
-        recent_messages = session.messages[-self._keep_recent:]
+        old_messages = session.messages[: -self._keep_recent]
+        recent_messages = session.messages[-self._keep_recent :]
 
         if not old_messages:
             logger.warning(
@@ -166,9 +162,7 @@ class ConversationService:
         if not content:
             raise ValueError("消息不能为空")
 
-        session.messages.append(
-            Message(role="user", content=content)
-        )
+        session.messages.append(Message(role="user", content=content))
 
         input_tokens = await self._compact_if_needed(
             session=session,
@@ -179,94 +173,9 @@ class ConversationService:
         request = ModelRequest(
             messages=session.messages,
             model=self._reasoning_model,
-            previous_response_id=None,
         )
 
         return request, input_tokens
-
-    async def chat(
-        self,
-        session: Session,
-        content: str,
-    ) -> ModelResponse:
-        trace_id = self._generate_trace_id()
-        started_at = time.perf_counter()
-
-        logger.info(
-            "普通对话开始",
-            extra=self._log_fields(
-                session_id=session.session_id,
-                trace_id=trace_id,
-                event="chat.turn.started",
-                mode="chat",
-                model=self._reasoning_model,
-            ),
-        )
-
-        try:
-            request, input_tokens = await self._prepare_request(
-                session=session,
-                content=content,
-                trace_id=trace_id,
-                mode="chat",
-            )
-
-            logger.info(
-                "开始调用模型",
-                extra=self._log_fields(
-                    session_id=session.session_id,
-                    trace_id=trace_id,
-                    event="llm.request.started",
-                    mode="chat",
-                    model=request.model,
-                    input_tokens=input_tokens,
-                ),
-            )
-
-            response = await self._client.create_response(request)
-
-            session.messages.append(response.message)
-            session.response_id = response.response_id
-
-            duration_ms = round(
-                (time.perf_counter() - started_at) * 1000,
-                2,
-            )
-
-            logger.info(
-                "模型调用完成",
-                extra=self._log_fields(
-                    session_id=session.session_id,
-                    trace_id=trace_id,
-                    event="llm.request.completed",
-                    mode="chat",
-                    model=request.model,
-                    input_tokens=input_tokens,
-                    response_id=response.response_id,
-                    duration_ms=duration_ms,
-                ),
-            )
-
-            return response
-
-        except Exception:
-            duration_ms = round(
-                (time.perf_counter() - started_at) * 1000,
-                2,
-            )
-
-            logger.exception(
-                "普通对话处理失败",
-                extra=self._log_fields(
-                    session_id=session.session_id,
-                    trace_id=trace_id,
-                    event="chat.turn.failed",
-                    mode="chat",
-                    model=self._reasoning_model,
-                    duration_ms=duration_ms,
-                ),
-            )
-            raise
 
     async def create_task_plan(
         self,

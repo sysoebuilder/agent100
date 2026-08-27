@@ -1,8 +1,7 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 
 from ai_agent_learning.paths import get_data_dir
 
@@ -24,7 +23,6 @@ class JsonFormatter(logging.Formatter):
         "input_tokens_after",
         "context_limit",
         "duration_ms",
-        "response_id",
         "compacted_messages",
         "retained_messages",
         "reason",
@@ -40,7 +38,7 @@ class JsonFormatter(logging.Formatter):
         payload: dict[str, object] = {
             "timestamp": datetime.fromtimestamp(
                 record.created,
-                tz=timezone.utc,
+                tz=UTC,
             ).isoformat(),
             "level": record.levelname,
             "logger": record.name,

@@ -1,18 +1,27 @@
 import os
 from getpass import getpass
 from pathlib import Path
+
 from dotenv import load_dotenv, set_key
 
+from ai_agent_learning.agent.context import ContextManager
+from ai_agent_learning.agent.loop import AgentLoop
 from ai_agent_learning.conversation_service import ConversationService
 from ai_agent_learning.logging_config import configure_logging
 from ai_agent_learning.model import ArkModelClient
-from ai_agent_learning.session import create_session_name, save_session, select_session
 from ai_agent_learning.paths import get_data_dir
+from ai_agent_learning.schema import Message, ModelRequest
+from ai_agent_learning.session import create_session_name, save_session, select_session
 from ai_agent_learning.taskplan import show_task_plan, validate_task_plan
-
+from ai_agent_learning.tools.catalog import BUILTIN_TOOLS
+from ai_agent_learning.tools.executor import ToolExecutor
+from ai_agent_learning.tools.registry import ToolRegistry
 
 API_KEY_ENV = "ARK_API_KEY"
 REASONING_MODEL_ENV = "ARK_REASONING_MODEL"
+TOKENIZER_MODEL = "doubao-seed-evolving"
+CONTEXT_LIMIT = 1_000_000
+KEEP_RECENT = 6
 
 
 def ask_required(
@@ -26,9 +35,7 @@ def ask_required(
         try:
             value = reader(prompt).strip()
         except EOFError as error:
-            raise SystemExit(
-                "\n无法读取输入，配置已取消。"
-            ) from error
+            raise SystemExit("\n无法读取输入，配置已取消。") from error
 
         if value:
             return value
@@ -51,9 +58,7 @@ def save_env_value(
             quote_mode="always",
         )
     except OSError as error:
-        raise SystemExit(
-            f"无法保存配置文件：{env_file}"
-        ) from error
+        raise SystemExit(f"无法保存配置文件：{env_file}") from error
 
     # 让本次运行立即使用刚输入的配置。
     os.environ[name] = value
@@ -94,7 +99,7 @@ def load_or_create_config() -> tuple[str, str]:
 
     if not reasoning_model:
         reasoning_model = ask_required(
-            "请输入 ARK 模型端点 ID：",
+            "请输入 ARK 模型推理点 ID：",
         )
         save_env_value(
             env_file,
@@ -105,35 +110,50 @@ def load_or_create_config() -> tuple[str, str]:
     print("配置保存成功。\n")
 
     return api_key, reasoning_model
-async def run_chat():
+
+
+async def run_chat() -> None:
     configure_logging()
     api_key, reasoning_id = load_or_create_config()
-
-    TOKENIZER_MODEL = "doubao-seed-evolving"
-    KEEP_RECENT = 6
 
     client = ArkModelClient(
         api_key=api_key,
         base_url="https://ark.cn-beijing.volces.com/api/v3",
     )
 
-    conversation_service = ConversationService(
+    tool_registry = ToolRegistry(
+        tools=BUILTIN_TOOLS,
+    )
+
+    tool_executor = ToolExecutor(
+        registry=tool_registry,
+    )
+
+    context_manager = ContextManager(
         client=client,
-        reasoning_model=reasoning_id,
         tokenizer_model=TOKENIZER_MODEL,
+        context_limit=CONTEXT_LIMIT,
         keep_recent=KEEP_RECENT,
+    )
+
+    agent_loop = AgentLoop(
+        model_client=client,
+        registry=tool_registry,
+        executor=tool_executor,
+        context_manager=context_manager,
+        max_steps=10,
     )
 
     session = select_session()
 
     try:
-        while(True):
+        while True:
             content = input("请输入消息: ").strip()
             if not content:
                 print("消息不能为空")
                 continue
 
-            if(content == "exit" or content == "quit"):
+            if content in {"exit", "quit"}:
                 break
 
             if not session.name.strip():
@@ -142,25 +162,38 @@ async def run_chat():
                     session_id=session.session_id,
                 )
 
-            response = await conversation_service.chat(
-                session=session,
-                content=content,
+            session.messages.append(
+                Message(
+                    role="user",
+                    content=content,
+                ),
             )
-            
+
+            request = ModelRequest(
+                messages=session.messages,
+                model=reasoning_id,
+            )
+            response = await agent_loop.run(request)
+
+            if response.message is None:
+                raise RuntimeError("Agent 没有返回最终文本")
+
+            # ContextManager 可能已经压缩 request.messages。
+            session.messages[:] = request.messages
+            session.messages.append(response.message)
+
             print(f"助手: {response.message.content}")
-  
+
         if session.messages:
             save_session(session)
 
     finally:
         await client.close()
 
-async def run_taskplan(goal: str | None = None):
+
+async def run_taskplan(goal: str | None = None) -> None:
     configure_logging()
     api_key, reasoning_id = load_or_create_config()
-
-    TOKENIZER_MODEL = "doubao-seed-evolving"
-    KEEP_RECENT = 6
 
     client = ArkModelClient(
         api_key=api_key,
@@ -176,39 +209,37 @@ async def run_taskplan(goal: str | None = None):
 
     session = select_session()
 
-
     try:
         if not goal:
             goal = input("请输入任务目标: ").strip()
             if not goal:
                 print("任务目标不能为空")
                 return
-    
-        if(goal == "exit" or goal == "quit"):
+
+        if goal in {"exit", "quit"}:
             return
-    
+
         if not session.name.strip():
             session.name = create_session_name(
                 goal,
                 session_id=session.session_id,
             )
-    
+
         plan = await conversation_service.create_task_plan(
             session=session,
             content=goal,
         )
         validate_task_plan(plan)
         show_task_plan(plan)
-    
+
         if session.messages:
-                    save_session(session)
+            save_session(session)
 
     finally:
         await client.close()
-        
+
+
 if __name__ == "__main__":
     from ai_agent_learning.cli import main
-    
+
     main()
-
-

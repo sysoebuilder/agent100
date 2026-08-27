@@ -6,10 +6,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from ai_agent_learning.schema import Session
 from ai_agent_learning.paths import get_data_dir
-
-
+from ai_agent_learning.schema import Session
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +115,6 @@ def load_session() -> list[Session]:
     return sessions
 
 
-def clear_session():
-    pass
-
-
 def create_session_name(
     prompt: str,
     max_length: int = 20,
@@ -133,10 +127,10 @@ def create_session_name(
     text = "".join(prompt.split())
 
     first_sentence = re.split(
-            r"[。！？!?；;\n]",
-            text,
-            maxsplit=1,
-        )[0]
+        r"[。！？!?；;\n]",
+        text,
+        maxsplit=1,
+    )[0]
 
     name = first_sentence[:max_length].strip()
 

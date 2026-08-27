@@ -37,7 +37,6 @@ def create_parser() -> argparse.ArgumentParser:
         help="需要规划的任务目标",
     )
 
-
     return parser
 
 
@@ -49,12 +48,7 @@ def main() -> None:
             asyncio.run(run_chat())
 
         elif args.command == "taskplan":
-            asyncio.run(
-                run_taskplan(args.goal)
-            )
+            asyncio.run(run_taskplan(args.goal))
 
     except KeyboardInterrupt:
         print("\n已退出")
-        
-    
-    

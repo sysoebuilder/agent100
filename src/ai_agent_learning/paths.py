@@ -7,10 +7,7 @@ def find_project_root() -> Path:
     current = Path.cwd().resolve()
 
     for directory in (current, *current.parents):
-        if (
-            (directory / ".git").exists()
-            or (directory / "pyproject.toml").is_file()
-        ):
+        if (directory / ".git").exists() or (directory / "pyproject.toml").is_file():
             return directory
 
     return current
