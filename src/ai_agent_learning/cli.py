@@ -13,7 +13,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version="agent100 0.1.4",
+        version="agent100 0.2.0",
     )
 
     commands = parser.add_subparsers(

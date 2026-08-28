@@ -1,6 +1,13 @@
 from ai_agent_learning.agent.context import ContextManager
+from ai_agent_learning.agent.state import (
+    AgentRunResult,
+    AgentState,
+    AgentStatus,
+    AgentStep,
+    StopReason,
+)
 from ai_agent_learning.model import ArkModelClient
-from ai_agent_learning.schema import ModelRequest, ModelResponse
+from ai_agent_learning.schema import ModelRequest
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
@@ -25,10 +32,13 @@ class AgentLoop:
         self._context_manager = context_manager
         self._max_steps = max_steps
 
-    async def run(self, request: ModelRequest) -> ModelResponse:
+    async def run(self, request: ModelRequest) -> AgentRunResult:
         tool_history: list[ToolCall | ToolResult] = []
+        state = AgentState()
 
-        for _ in range(self._max_steps):
+        for step_index in range(1, self._max_steps + 1):
+            state.current_step = step_index
+
             request = await self._context_manager.compact_if_needed(
                 request=request,
                 tool_history=tool_history,
@@ -40,16 +50,38 @@ class AgentLoop:
                 tool_history=tool_history,
             )
 
+            state.model_calls_used += 1
+            agent_step = AgentStep(
+                index=step_index,
+                message=response.message,
+                tool_calls=list(response.tool_calls),
+            )
+            state.steps.append(agent_step)
+
             if not response.tool_calls:
                 if response.message is None:
                     raise RuntimeError("模型没有返回任何有效内容")
 
-                return response
+                state.status = AgentStatus.COMPLETED
+                state.stop_reason = StopReason.FINAL_RESPONSE
+
+                return AgentRunResult(
+                    response=response,
+                    state=state,
+                )
 
             tool_history.extend(response.tool_calls)
 
             for tool_call in response.tool_calls:
                 result = await self._executor.execute(tool_call)
+                state.tool_calls_used += 1
                 tool_history.append(result)
+                agent_step.tool_results.append(result)
 
-        raise RuntimeError("Agent 执行达到最大步数")
+        state.status = AgentStatus.STOPPED
+        state.stop_reason = StopReason.MAX_STEPS
+
+        return AgentRunResult(
+            response=None,
+            state=state,
+        )

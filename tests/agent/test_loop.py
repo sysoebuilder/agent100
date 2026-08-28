@@ -1,6 +1,7 @@
 import asyncio
 
 from ai_agent_learning.agent.loop import AgentLoop
+from ai_agent_learning.agent.state import AgentStatus, StopReason
 from ai_agent_learning.schema import Message, ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 
@@ -75,10 +76,19 @@ def test_loop_executes_tool_and_returns_final_response() -> None:
         model="model",
     )
 
-    response = asyncio.run(loop.run(request))
+    result = asyncio.run(loop.run(request))
 
-    assert response.message is not None
-    assert response.message.content == "现在是 12 点。"
+    assert result.response is not None
+    assert result.response.message is not None
+    assert result.response.message.content == "现在是 12 点。"
+    assert result.state.status is AgentStatus.COMPLETED
+    assert result.state.stop_reason is StopReason.FINAL_RESPONSE
+    assert result.state.model_calls_used == 2
+    assert result.state.tool_calls_used == 1
+    assert len(result.state.steps) == 2
+    assert result.state.steps[0].tool_calls[0].id == "call-1"
+    assert result.state.steps[0].tool_results[0].call_id == "call-1"
+    assert result.state.steps[1].message == result.response.message
     assert model_client.histories[0] == []
     assert len(model_client.histories[1]) == 2
     assert isinstance(model_client.histories[1][0], ToolCall)

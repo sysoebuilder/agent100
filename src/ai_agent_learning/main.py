@@ -1,3 +1,4 @@
+import json
 import os
 from getpass import getpass
 from pathlib import Path
@@ -6,6 +7,8 @@ from dotenv import load_dotenv, set_key
 
 from ai_agent_learning.agent.context import ContextManager
 from ai_agent_learning.agent.loop import AgentLoop
+from ai_agent_learning.agent.state import AgentRunResult
+from ai_agent_learning.context import save_context, select_context
 from ai_agent_learning.conversation_service import ConversationService
 from ai_agent_learning.logging_config import configure_logging
 from ai_agent_learning.model import ArkModelClient
@@ -14,6 +17,7 @@ from ai_agent_learning.schema import Message, ModelRequest
 from ai_agent_learning.session import create_session_name, save_session, select_session
 from ai_agent_learning.taskplan import show_task_plan, validate_task_plan
 from ai_agent_learning.tools.catalog import BUILTIN_TOOLS
+from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
 
@@ -22,6 +26,59 @@ REASONING_MODEL_ENV = "ARK_REASONING_MODEL"
 TOKENIZER_MODEL = "doubao-seed-evolving"
 CONTEXT_LIMIT = 1_000_000
 KEEP_RECENT = 6
+
+
+def tool_call_to_message(call: ToolCall) -> Message:
+    return Message(
+        role="assistant",
+        content=json.dumps(
+            {
+                "event": "agent.tool_call",
+                "call_id": call.id,
+                "name": call.name,
+                "arguments": call.arguments,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+
+def tool_result_to_message(result: ToolResult) -> Message:
+    return Message(
+        role="assistant",
+        content=json.dumps(
+            {
+                "event": "agent.tool_result",
+                "call_id": result.call_id,
+                "success": result.success,
+                "data": result.data,
+                "error": result.error,
+                "metadata": result.metadata,
+            },
+            ensure_ascii=False,
+        ),
+    )
+
+
+def agent_run_result_to_messages(
+    result: AgentRunResult,
+) -> list[Message]:
+    messages: list[Message] = []
+
+    for step in result.state.steps:
+        if step.message is not None:
+            messages.append(step.message)
+
+        messages.extend(
+            tool_call_to_message(call)
+            for call in step.tool_calls
+        )
+        messages.extend(
+            tool_result_to_message(tool_result)
+            for tool_result in step.tool_results
+        )
+
+    return messages
 
 
 def ask_required(
@@ -145,7 +202,7 @@ async def run_chat() -> None:
     )
 
     session = select_session()
-
+    context = select_context(session.session_id)
     try:
         while True:
             content = input("请输入消息: ").strip()
@@ -169,23 +226,35 @@ async def run_chat() -> None:
                 ),
             )
 
+            context.messages.append(
+                Message(
+                    role="user",
+                    content=content,
+                ),
+            )
+
             request = ModelRequest(
-                messages=session.messages,
+                messages=context.messages,
                 model=reasoning_id,
             )
-            response = await agent_loop.run(request)
+            agent_result = await agent_loop.run(request)
+            run_messages = agent_run_result_to_messages(agent_result)
 
-            if response.message is None:
+            session.messages.extend(run_messages)
+            context.messages[:] = request.messages
+            context.messages.extend(run_messages)
+
+            if (
+                agent_result.response is None
+                or agent_result.response.message is None
+            ):
                 raise RuntimeError("Agent 没有返回最终文本")
 
-            # ContextManager 可能已经压缩 request.messages。
-            session.messages[:] = request.messages
-            session.messages.append(response.message)
-
-            print(f"助手: {response.message.content}")
+            print(f"助手: {agent_result.response.message.content}")
 
         if session.messages:
             save_session(session)
+            save_context(context)
 
     finally:
         await client.close()

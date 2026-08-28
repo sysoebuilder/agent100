@@ -26,6 +26,9 @@ class Session(BaseModel):
     name: str = Field(default="")
     messages: list[Message] = Field(default_factory=list)
 
+class Context(BaseModel):
+    context_id: str
+    messages: list[Message] = Field(default_factory=list)
 
 class Step(BaseModel):
     model_config = ConfigDict(extra="forbid")
