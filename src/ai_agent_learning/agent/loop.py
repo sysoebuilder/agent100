@@ -6,6 +6,11 @@ from ai_agent_learning.agent.state import (
     AgentStep,
     StopReason,
 )
+from ai_agent_learning.agent.policy import (
+    PolicyAction,
+    PolicyDecision,
+    AgentPolicy,
+)
 from ai_agent_learning.model import ArkModelClient
 from ai_agent_learning.schema import ModelRequest
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
@@ -19,25 +24,35 @@ class AgentLoop:
         model_client: ArkModelClient,
         registry: ToolRegistry,
         executor: ToolExecutor,
+        policy: AgentPolicy,
         context_manager: ContextManager,
-        *,
-        max_steps: int = 10,
     ) -> None:
-        if max_steps <= 0:
-            raise ValueError("max_steps 必须大于 0")
-
         self._model_client = model_client
         self._registry = registry
         self._executor = executor
         self._context_manager = context_manager
-        self._max_steps = max_steps
+        self._policy = policy
 
     async def run(self, request: ModelRequest) -> AgentRunResult:
         tool_history: list[ToolCall | ToolResult] = []
         state = AgentState()
 
-        for step_index in range(1, self._max_steps + 1):
-            state.current_step = step_index
+        while True:
+            decision = self._policy.before_model_call(state)
+            if decision.action is not PolicyAction.CONTINUE:
+                if decision.status is None or decision.stop_reason is None:
+                    raise RuntimeError("终止决策缺少状态或原因")
+                state.status = decision.status
+                state.stop_reason = decision.stop_reason
+
+                return AgentRunResult(
+                    response=response
+                    if decision.action is PolicyAction.COMPLETE
+                    else None,
+                    state=state,
+                )
+            
+            step_index = len(state.steps) + 1
 
             request = await self._context_manager.compact_if_needed(
                 request=request,
@@ -58,15 +73,21 @@ class AgentLoop:
             )
             state.steps.append(agent_step)
 
-            if not response.tool_calls:
-                if response.message is None:
-                    raise RuntimeError("模型没有返回任何有效内容")
+            decision = self._policy.after_model_response(
+                state,
+                response,
+            )
 
-                state.status = AgentStatus.COMPLETED
-                state.stop_reason = StopReason.FINAL_RESPONSE
+            if decision.action is not PolicyAction.CONTINUE:
+                if decision.status is None or decision.stop_reason is None:
+                    raise RuntimeError("终止决策缺少状态或原因")
+                state.status = decision.status
+                state.stop_reason = decision.stop_reason
 
                 return AgentRunResult(
-                    response=response,
+                    response=response
+                    if decision.action is PolicyAction.COMPLETE
+                    else None,
                     state=state,
                 )
 
@@ -78,10 +99,4 @@ class AgentLoop:
                 tool_history.append(result)
                 agent_step.tool_results.append(result)
 
-        state.status = AgentStatus.STOPPED
-        state.stop_reason = StopReason.MAX_STEPS
-
-        return AgentRunResult(
-            response=None,
-            state=state,
-        )
+            

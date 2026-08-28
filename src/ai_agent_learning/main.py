@@ -20,6 +20,7 @@ from ai_agent_learning.tools.catalog import BUILTIN_TOOLS
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
+from ai_agent_learning.agent.policy import AgentPolicy, AgentLimits
 
 API_KEY_ENV = "ARK_API_KEY"
 REASONING_MODEL_ENV = "ARK_REASONING_MODEL"
@@ -193,12 +194,14 @@ async def run_chat() -> None:
         keep_recent=KEEP_RECENT,
     )
 
+    agent_policy = AgentPolicy(limits = AgentLimits())
+
     agent_loop = AgentLoop(
         model_client=client,
         registry=tool_registry,
         executor=tool_executor,
         context_manager=context_manager,
-        max_steps=10,
+        policy=agent_policy,
     )
 
     session = select_session()

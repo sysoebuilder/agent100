@@ -12,11 +12,15 @@ class AgentStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     STOPPED = "stopped"
+    FAILED = "failed"
 
 
 class StopReason(str, Enum):
     FINAL_RESPONSE = "final_response"
     MAX_STEPS = "max_steps"
+    TOOL_FAILURE_LIMIT = "tool_failure_limit"
+    INVALID_MODEL_RESPONSE = "invalid_model_response"
+    REPEATED_TOOL_CALL = "repeated_tool_call"
 
 
 class AgentStep(BaseModel):

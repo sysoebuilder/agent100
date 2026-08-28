@@ -1,6 +1,7 @@
 import asyncio
 
 from ai_agent_learning.agent.loop import AgentLoop
+from ai_agent_learning.agent.policy import AgentLimits, AgentPolicy
 from ai_agent_learning.agent.state import AgentStatus, StopReason
 from ai_agent_learning.schema import Message, ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
@@ -69,7 +70,9 @@ def test_loop_executes_tool_and_returns_final_response() -> None:
         registry=FakeRegistry(),  # type: ignore[arg-type]
         executor=FakeExecutor(),  # type: ignore[arg-type]
         context_manager=FakeContextManager(),  # type: ignore[arg-type]
-        max_steps=2,
+        policy=AgentPolicy(
+            limits=AgentLimits(max_steps=2),
+        ),
     )
     request = ModelRequest(
         messages=[Message(role="user", content="现在几点？")],
