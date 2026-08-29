@@ -36,7 +36,7 @@ class AgentLoop:
     async def run(self, request: ModelRequest) -> AgentRunResult:
         tool_history: list[ToolCall | ToolResult] = []
         state = AgentState()
-
+        
         while True:
             decision = self._policy.before_model_call(state)
             if decision.action is not PolicyAction.CONTINUE:

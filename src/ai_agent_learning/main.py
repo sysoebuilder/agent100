@@ -21,6 +21,7 @@ from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
 from ai_agent_learning.agent.policy import AgentPolicy, AgentLimits
+from ai_agent_learning.agent.state import AgentStatus, StopReason
 
 API_KEY_ENV = "ARK_API_KEY"
 REASONING_MODEL_ENV = "ARK_REASONING_MODEL"
@@ -241,8 +242,22 @@ async def run_chat() -> None:
                 model=reasoning_id,
             )
             agent_result = await agent_loop.run(request)
+            if agent_result.state.status is not StopReason.FINAL_RESPONSE:
+                if agent_result.state.stop_reason is StopReason.MAX_STEPS:
+                    print("Agent 已超过最大步骤数")
+                    continue
+                if agent_result.state.stop_reason is StopReason.TOOL_FAILURE_LIMIT:
+                    print("Agent 已超过最大工具调用次数")
+                    continue
+                if agent_result.state.stop_reason is StopReason.INVALID_MODEL_RESPONSE:
+                    print("Agent 返回无效模型响应")
+                    continue
+                if agent_result.state.stop_reason is StopReason.REPEATED_TOOL_CALL:
+                    print("Agent 重复调用工具")
+                    continue
+                print(f"Agent 已停止，未知原因")
+                
             run_messages = agent_run_result_to_messages(agent_result)
-
             session.messages.extend(run_messages)
             context.messages[:] = request.messages
             context.messages.extend(run_messages)
