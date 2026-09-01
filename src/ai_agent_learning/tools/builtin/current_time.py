@@ -17,8 +17,14 @@ SPEC = ToolSpec(
 
 
 async def handler() -> dict[str, str]:
-    now = datetime.now().astimezone()
-    raw_offset = now.strftime("%z")
+    try:
+        now = datetime.now().astimezone()
+        raw_offset = now.strftime("%z")
+    except Exception as error:
+        print(f"Error in current_time: {error}")
+        return {
+            "error": str(error),
+        }
 
     return {
         "iso": now.isoformat(timespec="seconds"),

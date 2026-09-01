@@ -1,4 +1,5 @@
 import json
+from typing import cast
 
 import httpx
 from openai import AsyncOpenAI
@@ -6,6 +7,7 @@ from openai.types.responses import (
     FunctionToolParam,
     ResponseFunctionToolCall,
     ResponseInputParam,
+    ToolParam,
 )
 
 from ai_agent_learning.retry import retry_async
@@ -41,7 +43,7 @@ class ArkModelClient:
         tools: list[ToolSpec],
         tool_history: list[ToolResult | ToolCall] | None = None,
     ) -> ModelResponse:
-        api_tools: list[FunctionToolParam] = [
+        function_tools: list[FunctionToolParam] = [
             {
                 "type": "function",
                 "name": spec.name,
@@ -51,6 +53,15 @@ class ArkModelClient:
             }
             for spec in tools
         ]
+        api_tools: list[ToolParam] = [*function_tools]
+        api_tools.append(
+            cast(
+                ToolParam,
+                {
+                    "type": "web_search",
+                    "max_keyword": 10,
+            })
+        )
 
         model_input: ResponseInputParam = [
             {

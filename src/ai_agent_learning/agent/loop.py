@@ -94,7 +94,7 @@ class AgentLoop:
             tool_history.extend(response.tool_calls)
 
             for tool_call in response.tool_calls:
-                result = await self._executor.execute(tool_call)
+                result = await self._executor.execute_with_recovery(call=tool_call)
                 state.tool_calls_used += 1
                 tool_history.append(result)
                 agent_step.tool_results.append(result)

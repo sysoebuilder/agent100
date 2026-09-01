@@ -242,7 +242,7 @@ async def run_chat() -> None:
                 model=reasoning_id,
             )
             agent_result = await agent_loop.run(request)
-            if agent_result.state.status is not StopReason.FINAL_RESPONSE:
+            if agent_result.state.stop_reason is not StopReason.FINAL_RESPONSE:
                 if agent_result.state.stop_reason is StopReason.MAX_STEPS:
                     print("Agent 已超过最大步骤数")
                     continue
