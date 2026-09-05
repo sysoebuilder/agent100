@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from collections.abc import Sequence
 
 from ai_agent_learning.model import ArkModelClient, GlmModelClient
@@ -40,6 +41,75 @@ class ContextManager:
         self._context_limit = context_limit
         self._compact_limit = int(context_limit * compact_threshold)
         self._keep_recent = keep_recent
+        self._estimated_tokens = 0
+        self._message_count = 0
+        self._history_count = 0
+        self._message_estimated_tokens = 0
+        self._tokens_verified = False
+
+    @property
+    def estimated_tokens(self) -> int:
+        """当前上下文估算量；精确检查后以实际计数作为新基准。"""
+        return self._estimated_tokens
+
+    @staticmethod
+    def estimate_tokens(text: str) -> int:
+        """本地经验估算，仅用于触发精确检查，不保证与模型分词一致。"""
+        ascii_count = sum(character.isascii() for character in text)
+        return math.ceil(ascii_count / 3 + (len(text) - ascii_count) * 1.5)
+
+    def _estimate_message_tokens(self, role: str, content: str) -> int:
+        return self.estimate_tokens(f"{role}: {content}") + 4
+
+    def initialize_token_estimate(
+        self,
+        messages: Sequence[Message],
+        tool_history: Sequence[ToolCall | ToolResult] = (),
+    ) -> int:
+        """加载会话或替换历史后，主动重建本地估算基准。"""
+        self._estimated_tokens = 0
+        self._message_count = 0
+        self._history_count = 0
+        self._message_estimated_tokens = 0
+        self._tokens_verified = False
+        return self._update_token_estimate(messages, tool_history)
+
+    def _update_token_estimate(
+        self,
+        messages: Sequence[Message],
+        tool_history: Sequence[ToolCall | ToolResult],
+    ) -> int:
+        # 普通消息只追加；压缩/替换历史由调用方主动重新初始化。
+        if len(messages) < self._message_count:
+            raise ValueError("消息数量减少，请先调用 initialize_token_estimate")
+
+        if len(tool_history) < self._history_count:
+            # 新一轮 AgentLoop 清空临时工具历史，恢复消息的本地估算小计。
+            # 不能从已校正的真实总量中直接扣除工具的估算量。
+            self._estimated_tokens = self._message_estimated_tokens
+            self._history_count = 0
+            self._tokens_verified = False
+
+        new_messages = messages[self._message_count :]
+        new_history = tool_history[self._history_count :]
+        if not new_messages and not new_history:
+            return self._estimated_tokens
+
+        added_message_tokens = sum(
+            self._estimate_message_tokens(message.role, message.content)
+            for message in new_messages
+        )
+        added_history_tokens = sum(
+            self._estimate_message_tokens("system", self._serialize_tool_item(item))
+            for item in new_history
+        )
+
+        self._message_estimated_tokens += added_message_tokens
+        self._estimated_tokens += added_message_tokens + added_history_tokens
+        self._message_count = len(messages)
+        self._history_count = len(tool_history)
+        self._tokens_verified = False
+        return self._estimated_tokens
 
     @staticmethod
     def _serialize_tool_item(
@@ -118,6 +188,14 @@ class ContextManager:
         request: ModelRequest,
         tool_history: Sequence[ToolCall | ToolResult],
     ) -> ModelRequest:
+        estimated_tokens = self._update_token_estimate(request.messages, tool_history)
+        if estimated_tokens < self._compact_limit:
+            return request
+        if self._tokens_verified:
+            # 相同上下文已经检查过（可能只剩近期消息，无可压缩内容）。
+            self._raise_if_over_limit(self._estimated_tokens)
+            return request
+
         input_tokens = await self._count_tokens(
             request,
             tool_history,
@@ -132,7 +210,9 @@ class ContextManager:
             },
         )
 
-        if input_tokens <= self._compact_limit:
+        self._estimated_tokens = input_tokens
+        if input_tokens < self._compact_limit:
+            self._tokens_verified = True
             return request
 
         old_messages = request.messages[: -self._keep_recent]
@@ -140,6 +220,7 @@ class ContextManager:
 
         if not old_messages:
             self._raise_if_over_limit(input_tokens)
+            self._tokens_verified = True
             return request
 
         logger.info(
@@ -157,16 +238,18 @@ class ContextManager:
             request.model,
         )
 
-        # 就地更新，调用方可以把压缩后的消息同步回 Session。
-        request.messages[:] = [
-            summary,
-            *recent_messages,
-        ]
-
+        # 压缩后计数成功再替换原上下文；计数失败时可安全重试。
+        compacted_request = ModelRequest(
+            model=request.model, messages=[summary, *recent_messages]
+        )
         tokens_after = await self._count_tokens(
-            request,
+            compacted_request,
             tool_history,
         )
+        request.messages[:] = compacted_request.messages
+        self.initialize_token_estimate(request.messages, tool_history)
+        self._estimated_tokens = tokens_after
+        self._tokens_verified = True
 
         logger.info(
             "Agent 历史上下文压缩完成",

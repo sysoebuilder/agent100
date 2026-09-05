@@ -222,6 +222,7 @@ async def run_chat() -> None:
 
         session = select_session()
         context = select_context(session.session_id)
+        context_manager.initialize_token_estimate(context.messages)
 
         while True:
             content = input("请输入消息: ").strip()
@@ -311,6 +312,7 @@ async def run_taskplan(goal: str | None = None) -> None:
 
         session = select_session()
         context = select_context(session.session_id)
+        context_manager.initialize_token_estimate(context.messages)
 
         if not goal:
             goal = input("请输入任务目标: ").strip()

@@ -41,6 +41,7 @@ AgentLoop、ContextManager、ConversationService、Planner 和 PlanExecutor 均�
 - 工具续调：把返回的 `response.tool_calls` 和执行产生的 `ToolResult` 按顺序传入下一次调用的 `tool_history`。`ToolCall.assistant_message` 保存原始参数和思考内容，需保留该字段，避免重建 ToolCall 时丢失。
 - `create_task_plan`：使用 JSON 模式，提供 TaskPlan schema 和工具描述，再通过 Pydantic 校验返回结果。规划请求不注册可执行工具；无效计划会抛出校验异常。
 - `tokenization`：请求 `tokenizer` 并读取 `usage.total_tokens`；网络或可重试状态码最多尝试 3 次。
+- `ContextManager`：启动时本地估算，后续累计新增内容；估算达到阈值后才调用 `tokenization`，详见 [上下文 Token 增量估算](context-token-estimation.md)。
 - `compact_context`：返回带有“历史对话摘要”前缀的 system 消息。
 - `close`：释放 HTTP 和 SDK 连接。
 
