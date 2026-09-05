@@ -1,4 +1,4 @@
-from ai_agent_learning.model import ArkModelClient
+from ai_agent_learning.model import ArkModelClient, GlmModelClient
 from ai_agent_learning.planning.schema import TaskPlan
 from ai_agent_learning.planning.validator import validate_plan
 from ai_agent_learning.schema import ModelRequest
@@ -8,7 +8,7 @@ from ai_agent_learning.tools.registry import ToolRegistry
 class Planner:
     def __init__(
         self,
-        model_client: ArkModelClient,
+        model_client: ArkModelClient | GlmModelClient,
         registry: ToolRegistry,
     ) -> None:
         self._model_client = model_client

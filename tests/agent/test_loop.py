@@ -22,7 +22,7 @@ class FakeRegistry:
 
 
 class FakeExecutor:
-    async def execute(self, call: ToolCall) -> ToolResult:
+    async def execute_with_recovery(self, call: ToolCall) -> ToolResult:
         return ToolResult(
             call_id=call.id,
             success=True,

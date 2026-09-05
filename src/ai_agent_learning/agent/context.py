@@ -2,7 +2,7 @@ import json
 import logging
 from collections.abc import Sequence
 
-from ai_agent_learning.model import ArkModelClient
+from ai_agent_learning.model import ArkModelClient, GlmModelClient
 from ai_agent_learning.schema import Message, ModelRequest
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 
@@ -16,7 +16,7 @@ class ContextLimitExceeded(RuntimeError):
 class ContextManager:
     def __init__(
         self,
-        client: ArkModelClient,
+        client: ArkModelClient | GlmModelClient,
         tokenizer_model: str,
         *,
         context_limit: int = 1_000_000,
@@ -52,6 +52,13 @@ class ContextManager:
                 "name": item.name,
                 "arguments": item.arguments,
             }
+            # GLM 会回传原始 assistant 内容，计数时也应包含它。
+            # 一轮多个工具共用这段内容，只在第一个工具上计入。
+            if (
+                item.assistant_message is not None
+                and item.assistant_message["tool_calls"][0]["id"] == item.id
+            ):
+                payload["assistant_message"] = item.assistant_message
         else:
             payload = {
                 "type": "function_call_output",

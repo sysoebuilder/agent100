@@ -11,7 +11,7 @@ from ai_agent_learning.agent.policy import (
     PolicyDecision,
     AgentPolicy,
 )
-from ai_agent_learning.model import ArkModelClient
+from ai_agent_learning.model import ArkModelClient, GlmModelClient
 from ai_agent_learning.schema import ModelRequest
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
@@ -21,7 +21,7 @@ from ai_agent_learning.tools.registry import ToolRegistry
 class AgentLoop:
     def __init__(
         self,
-        model_client: ArkModelClient,
+        model_client: ArkModelClient | GlmModelClient,
         registry: ToolRegistry,
         executor: ToolExecutor,
         policy: AgentPolicy,
