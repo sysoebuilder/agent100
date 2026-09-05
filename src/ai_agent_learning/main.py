@@ -7,21 +7,29 @@ from dotenv import load_dotenv, set_key
 
 from ai_agent_learning.agent.context import ContextManager
 from ai_agent_learning.agent.loop import AgentLoop
-from ai_agent_learning.agent.state import AgentRunResult
+from ai_agent_learning.agent.policy import AgentLimits, AgentPolicy
+from ai_agent_learning.agent.state import AgentRunResult, StopReason
 from ai_agent_learning.context import save_context, select_context
-from ai_agent_learning.conversation_service import ConversationService
 from ai_agent_learning.logging_config import configure_logging
 from ai_agent_learning.model import ArkModelClient
 from ai_agent_learning.paths import get_data_dir
+from ai_agent_learning.planning.executor import PlanExecutor
+from ai_agent_learning.planning.planner import Planner
+from ai_agent_learning.planning.renderer import (
+    show_step_status,
+    show_task_plan,
+)
+from ai_agent_learning.planning.state import (
+    PlanExecution,
+    PlanStatus,
+    StepExecution,
+)
 from ai_agent_learning.schema import Message, ModelRequest
 from ai_agent_learning.session import create_session_name, save_session, select_session
-from ai_agent_learning.taskplan import show_task_plan, validate_task_plan
 from ai_agent_learning.tools.catalog import BUILTIN_TOOLS
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
-from ai_agent_learning.agent.policy import AgentPolicy, AgentLimits
-from ai_agent_learning.agent.state import AgentStatus, StopReason
 
 API_KEY_ENV = "ARK_API_KEY"
 REASONING_MODEL_ENV = "ARK_REASONING_MODEL"
@@ -255,7 +263,7 @@ async def run_chat() -> None:
                 if agent_result.state.stop_reason is StopReason.REPEATED_TOOL_CALL:
                     print("Agent 重复调用工具")
                     continue
-                print(f"Agent 已停止，未知原因")
+                print("Agent 已停止，未知原因")
                 
             run_messages = agent_run_result_to_messages(agent_result)
             session.messages.extend(run_messages)
@@ -287,14 +295,28 @@ async def run_taskplan(goal: str | None = None) -> None:
         base_url="https://ark.cn-beijing.volces.com/api/v3",
     )
 
-    conversation_service = ConversationService(
+    context_manager = ContextManager(
         client=client,
-        reasoning_model=reasoning_id,
         tokenizer_model=TOKENIZER_MODEL,
+        context_limit=CONTEXT_LIMIT,
         keep_recent=KEEP_RECENT,
+    )
+    tool_registry = ToolRegistry(
+        tools=BUILTIN_TOOLS,
+    )
+    planner = Planner(
+        model_client=client,
+        registry=tool_registry,
+    )
+    plan_executor = PlanExecutor(
+        model_client=client,
+        model=reasoning_id,
+        tool_executor=ToolExecutor(registry=tool_registry),
+        on_step_status=show_step_status,
     )
 
     session = select_session()
+    context = select_context(session.session_id)
 
     try:
         if not goal:
@@ -312,15 +334,59 @@ async def run_taskplan(goal: str | None = None) -> None:
                 session_id=session.session_id,
             )
 
-        plan = await conversation_service.create_task_plan(
-            session=session,
+        user_message = Message(
+            role="user",
             content=goal,
         )
-        validate_task_plan(plan)
+        session.messages.append(user_message)
+        context.messages.append(user_message)
+
+        request = ModelRequest(
+            messages=context.messages,
+            model=reasoning_id,
+        )
+        request = await context_manager.compact_if_needed(
+            request=request,
+            tool_history=(),
+        )
+        context.messages[:] = request.messages
+
+        plan = await planner.create_plan(request)
+        plan_message = Message(
+            role="assistant",
+            content=plan.model_dump_json(),
+        )
+        session.messages.append(plan_message)
+        context.messages.append(plan_message)
+
+        execution = PlanExecution(
+            plan=plan,
+            steps=[
+                StepExecution(step_id=step.step_id)
+                for step in plan.steps
+            ],
+        )
+
         show_task_plan(plan)
+
+        approval = input("是否执行该计划？[y/N]: ").strip().lower()
+
+        if approval not in {"y", "yes"}:
+            execution.status = PlanStatus.CANCELLED
+            print("计划已取消，未执行任何步骤。")
+        else:
+            execution.status = PlanStatus.RUNNING
+            print("\n开始执行计划：")
+            execution = await plan_executor.execute(execution)
+
+            if execution.status is PlanStatus.COMPLETED:
+                print("\n计划执行完成。")
+            else:
+                print("\n计划执行失败。")
 
         if session.messages:
             save_session(session)
+            save_context(context)
 
     finally:
         await client.close()

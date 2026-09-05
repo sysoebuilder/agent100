@@ -10,8 +10,9 @@ from openai.types.responses import (
     ToolParam,
 )
 
+from ai_agent_learning.planning.schema import TaskPlan
 from ai_agent_learning.retry import retry_async
-from ai_agent_learning.schema import Message, ModelRequest, ModelResponse, TaskPlan
+from ai_agent_learning.schema import Message, ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult, ToolSpec
 
 
@@ -37,12 +38,12 @@ class ArkModelClient:
             ),
         )
 
-    async def create_response(
-        self,
-        request: ModelRequest,
+    @staticmethod
+    def _build_api_tools(
         tools: list[ToolSpec],
-        tool_history: list[ToolResult | ToolCall] | None = None,
-    ) -> ModelResponse:
+        *,
+        include_web_search: bool,
+    ) -> list[ToolParam]:
         function_tools: list[FunctionToolParam] = [
             {
                 "type": "function",
@@ -54,13 +55,31 @@ class ArkModelClient:
             for spec in tools
         ]
         api_tools: list[ToolParam] = [*function_tools]
-        api_tools.append(
-            cast(
-                ToolParam,
-                {
-                    "type": "web_search",
-                    "max_keyword": 10,
-            })
+
+        if include_web_search:
+            api_tools.append(
+                cast(
+                    ToolParam,
+                    {
+                        "type": "web_search",
+                        "max_keyword": 10,
+                    },
+                )
+            )
+
+        return api_tools
+
+    async def create_response(
+        self,
+        request: ModelRequest,
+        tools: list[ToolSpec],
+        tool_history: list[ToolResult | ToolCall] | None = None,
+        *,
+        include_web_search: bool = True,
+    ) -> ModelResponse:
+        api_tools = self._build_api_tools(
+            tools,
+            include_web_search=include_web_search,
         )
 
         model_input: ResponseInputParam = [
@@ -71,62 +90,69 @@ class ArkModelClient:
             for message in request.messages
         ]
 
-        for item in tool_history or []:
-            if isinstance(item, ToolCall):
+        for history_item in tool_history or []:
+            if isinstance(history_item, ToolCall):
                 model_input.append(
                     {
                         "type": "function_call",
-                        "call_id": item.id,
-                        "name": item.name,
+                        "call_id": history_item.id,
+                        "name": history_item.name,
                         "arguments": json.dumps(
-                            item.arguments,
+                            history_item.arguments,
                             ensure_ascii=False,
                         ),
                     }
                 )
 
-            elif isinstance(item, ToolResult):
+            elif isinstance(history_item, ToolResult):
                 model_input.append(
                     {
                         "type": "function_call_output",
-                        "call_id": item.call_id,
+                        "call_id": history_item.call_id,
                         "output": json.dumps(
                             {
-                                "success": item.success,
-                                "data": item.data,
-                                "error": item.error,
+                                "success": history_item.success,
+                                "data": history_item.data,
+                                "error": history_item.error,
                             },
                             ensure_ascii=False,
                         ),
                     }
                 )
 
-        response = await self._client.responses.create(
-            model=request.model,
-            store=False,
-            input=model_input,
-            tools=api_tools,
-            tool_choice="auto",
-        )
+        if api_tools:
+            response = await self._client.responses.create(
+                model=request.model,
+                store=False,
+                input=model_input,
+                tools=api_tools,
+                tool_choice="auto",
+            )
+        else:
+            response = await self._client.responses.create(
+                model=request.model,
+                store=False,
+                input=model_input,
+            )
 
         tool_calls: list[ToolCall] = []
 
-        for item in response.output:
+        for output_item in response.output:
             if not isinstance(
-                item,
+                output_item,
                 ResponseFunctionToolCall,
             ):
                 continue
 
-            arguments = json.loads(item.arguments)
+            arguments = json.loads(output_item.arguments)
 
             if not isinstance(arguments, dict):
                 raise TypeError("工具调用参数必须是 JSON 对象")
 
             tool_calls.append(
                 ToolCall(
-                    id=item.call_id,
-                    name=item.name,
+                    id=output_item.call_id,
+                    name=output_item.name,
                     arguments=arguments,
                 )
             )
@@ -147,7 +173,15 @@ class ArkModelClient:
             tool_calls=tool_calls,
         )
 
-    async def create_task_plan(self, request: ModelRequest) -> TaskPlan:
+    async def create_task_plan(
+        self,
+        request: ModelRequest,
+        tools: list[ToolSpec],
+    ) -> TaskPlan:
+        api_tools = self._build_api_tools(
+            tools,
+            include_web_search=False,
+        )
         response = await self._client.responses.parse(
             model=request.model,
             store=False,
@@ -159,6 +193,8 @@ class ArkModelClient:
                 for message in request.messages
             ],
             text_format=TaskPlan,
+            tools=api_tools,  # type: ignore[arg-type]
+            tool_choice="none",
         )
 
         if response.output_parsed is None:

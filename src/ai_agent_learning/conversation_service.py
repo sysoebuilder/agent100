@@ -3,12 +3,13 @@ import secrets
 import time
 
 from ai_agent_learning.model import ArkModelClient
+from ai_agent_learning.planning.schema import TaskPlan
 from ai_agent_learning.schema import (
     Message,
     ModelRequest,
     Session,
-    TaskPlan,
 )
+from ai_agent_learning.tools.contracts import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,7 @@ class ConversationService:
         self,
         session: Session,
         content: str,
+        tools: list[ToolSpec],
     ) -> TaskPlan:
         trace_id = self._generate_trace_id()
         started_at = time.perf_counter()
@@ -204,7 +206,10 @@ class ConversationService:
                 mode="task_plan",
             )
 
-            plan = await self._client.create_task_plan(request)
+            plan = await self._client.create_task_plan(
+                request,
+                tools=tools,
+            )
 
             session.messages.append(
                 Message(

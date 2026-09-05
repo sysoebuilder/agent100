@@ -1,7 +1,7 @@
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from ai_agent_learning.tools.contracts import ToolCall
 
@@ -29,17 +29,3 @@ class Session(BaseModel):
 class Context(BaseModel):
     context_id: str
     messages: list[Message] = Field(default_factory=list)
-
-class Step(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    step_id: str = Field(min_length=1, pattern=r"^step_[1-9][0-9]*$")
-    title: str = Field(min_length=1, max_length=300)
-    completion_condition: str = Field(min_length=1, max_length=300)
-
-
-class TaskPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    goal: str = Field(min_length=1)
-    steps: list[Step] = Field(min_length=1, max_length=10)
