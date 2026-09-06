@@ -257,7 +257,32 @@ async def run_chat() -> None:
                 messages=context.messages,
                 model=reasoning_id,
             )
-            agent_result = await agent_loop.run(request)
+            streaming_started = False
+
+            def print_text_delta(text: str) -> None:
+                nonlocal streaming_started
+                if not text:
+                    return
+                if not streaming_started:
+                    print("助手: ", end="", flush=True)
+                    streaming_started = True
+                print(text, end="", flush=True)
+
+            def finish_message() -> None:
+                nonlocal streaming_started
+                if streaming_started:
+                    print(flush=True)
+                    streaming_started = False
+
+            try:
+                agent_result = await agent_loop.run(
+                    request,
+                    on_text_delta=print_text_delta,
+                    on_message_end=finish_message,
+                )
+            finally:
+                # 中断或网络异常时，避免下一个终端提示接在残缺正文后面。
+                finish_message()
             if agent_result.state.stop_reason is not StopReason.FINAL_RESPONSE:
                 if agent_result.state.stop_reason is StopReason.MAX_STEPS:
                     print("Agent 已超过最大步骤数")
@@ -280,8 +305,6 @@ async def run_chat() -> None:
 
             if agent_result.response is None or agent_result.response.message is None:
                 raise RuntimeError("Agent 没有返回最终文本")
-
-            print(f"助手: {agent_result.response.message.content}")
 
         if session.messages:
             save_session(session)

@@ -151,8 +151,34 @@ def test_plain_response_without_tools_and_thinking():
 @pytest.mark.parametrize(
     "arguments,error", [("[]", TypeError), ("invalid", ValueError)]
 )
-def test_invalid_tool_arguments(arguments, error):
+@pytest.mark.parametrize("streaming", [False, True])
+def test_invalid_tool_arguments(arguments, error, streaming):
     def handler(request):
+        if streaming:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=ChunkStream(
+                    [
+                        stream_chunk(
+                            {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call-1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "weather",
+                                            "arguments": arguments,
+                                        },
+                                    }
+                                ]
+                            },
+                            "tool_calls",
+                        )
+                    ]
+                ),
+            )
         return httpx.Response(
             200,
             json=completion(
@@ -170,7 +196,10 @@ def test_invalid_tool_arguments(arguments, error):
         client = await client_with_transport(handler)
         try:
             with pytest.raises(error):
-                await client.create_response(REQUEST, TOOLS)
+                if streaming:
+                    await client.create_response_stream(REQUEST, TOOLS)
+                else:
+                    await client.create_response(REQUEST, TOOLS)
         finally:
             await client.close()
 
@@ -197,6 +226,7 @@ def test_task_plan_uses_json_mode_and_validates_schema():
     def handler(request):
         body = json.loads(request.content)
         assert body["response_format"] == {"type": "json_object"}
+        assert not body.get("stream")
         assert "tools" not in body and "tool_choice" not in body
         assert "weather" in body["messages"][0]["content"]
         assert "JSON Schema" in body["messages"][0]["content"]
@@ -290,3 +320,165 @@ def test_manual_tool_history_groups_calls_and_serializes_failures():
         "data": None,
         "error": {"message": "失败"},
     }
+
+
+def stream_chunk(delta=None, finish_reason=None):
+    return {
+        "id": "stream-1",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "GLM-5.3-flash",
+        "choices": [{"index": 0, "delta": delta or {}, "finish_reason": finish_reason}],
+    }
+
+
+class ChunkStream(httpx.AsyncByteStream):
+    def __init__(self, chunks, before_chunk=None):
+        self.chunks = chunks
+        self.closed = False
+        self.before_chunk = before_chunk
+
+    async def __aiter__(self):
+        for index, chunk in enumerate(self.chunks):
+            if self.before_chunk:
+                self.before_chunk(index)
+            yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
+        yield b"data: [DONE]\n\n"
+
+    async def aclose(self):
+        self.closed = True
+
+
+def test_stream_emits_text_immediately_and_preserves_tool_round_trip():
+    deltas = []
+    bodies = []
+    chunks = [
+        stream_chunk({"content": "查询", "reasoning_content": "思考\n"}),
+        stream_chunk(
+            {
+                "content": "中",
+                "tool_calls": [
+                    {
+                        "index": 1,
+                        "id": "b",
+                        "type": "function",
+                        "function": {"name": "weather", "arguments": '{ "city": '},
+                    },
+                    {
+                        "index": 0,
+                        "id": "a",
+                        "type": "function",
+                        "function": {"name": "weather", "arguments": '{"city":'},
+                    },
+                ],
+            }
+        ),
+        stream_chunk(
+            {
+                "reasoning_content": "继续",
+                "tool_calls": [
+                    {"index": 0, "function": {"arguments": '"北京"}'}},
+                    {"index": 1, "function": {"arguments": '"上海" }'}},
+                ],
+            }
+        ),
+        stream_chunk(finish_reason="tool_calls"),
+        {**stream_chunk(), "choices": []},
+    ]
+
+    def before_chunk(index):
+        if index == 1:
+            assert deltas == ["查询"]
+
+    first_stream = ChunkStream(chunks, before_chunk)
+    second_stream = ChunkStream(
+        [
+            stream_chunk({"content": "晴"}),
+            stream_chunk({"content": "天"}, "stop"),
+        ]
+    )
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        assert bodies[-1]["stream"] is True
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=first_stream if len(bodies) == 1 else second_stream,
+        )
+
+    async def run():
+        client = await client_with_transport(handler)
+        try:
+            first = await client.create_response_stream(
+                REQUEST, TOOLS, on_text_delta=deltas.append
+            )
+            assert first.message.content == "查询中"
+            assert [call.id for call in first.tool_calls] == ["a", "b"]
+            assert [call.arguments for call in first.tool_calls] == [
+                {"city": "北京"},
+                {"city": "上海"},
+            ]
+            history = [
+                *first.tool_calls,
+                *[ToolResult(call.id, True, {}) for call in first.tool_calls],
+            ]
+            result = await client.create_response_stream(
+                REQUEST, TOOLS, history, on_text_delta=deltas.append
+            )
+            assert result.message.content == "晴天"
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert deltas == ["查询", "中", "晴", "天"]
+    assert first_stream.closed and second_stream.closed
+    original = bodies[1]["messages"][1]
+    assert original["reasoning_content"] == "思考\n继续"
+    assert original["content"] == "查询中"
+    assert original["tool_calls"][1]["function"]["arguments"] == '{ "city": "上海" }'
+
+
+@pytest.mark.parametrize("reason", [None, "length", "content_filter"])
+def test_stream_rejects_incomplete_response(reason):
+    stream = ChunkStream([stream_chunk({"content": "部分"}, reason)])
+
+    async def run():
+        client = await client_with_transport(
+            lambda request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=stream
+            )
+        )
+        try:
+            with pytest.raises(ValueError, match="未正常完成"):
+                await client.create_response_stream(REQUEST, [])
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert stream.closed
+
+
+@pytest.mark.parametrize("error", [RuntimeError, asyncio.CancelledError])
+def test_stream_closes_when_callback_fails_or_run_is_cancelled(error):
+    stream = ChunkStream(
+        [stream_chunk({"content": "正文"}), stream_chunk(finish_reason="stop")]
+    )
+
+    def fail(text):
+        raise error()
+
+    async def run():
+        client = await client_with_transport(
+            lambda request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=stream
+            )
+        )
+        try:
+            with pytest.raises(error):
+                await client.create_response_stream(REQUEST, [], on_text_delta=fail)
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert stream.closed

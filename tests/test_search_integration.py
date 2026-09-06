@@ -134,6 +134,21 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
                 result = json.loads(body["input"][-1]["output"])
             assert result["success"]
             assert result["data"]["results"][0]["url"] == "https://docs.bigmodel.cn/"
+        if client_type is GlmModelClient:
+            assert body["stream"] is True
+            chunk = model_response(client_type, "文档总结", call=len(bodies) == 1)
+            chunk["object"] = "chat.completion.chunk"
+            choice = chunk["choices"][0]
+            choice["delta"] = choice.pop("message")
+            for index, call in enumerate(choice["delta"].get("tool_calls", [])):
+                call["index"] = index
+            choice["finish_reason"] = "tool_calls" if len(bodies) == 1 else "stop"
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
+            )
+        assert not body.get("stream")
         return httpx.Response(
             200, json=model_response(client_type, "文档总结", call=len(bodies) == 1)
         )

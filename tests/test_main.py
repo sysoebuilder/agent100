@@ -1,5 +1,10 @@
+import asyncio
 import json
+from contextlib import asynccontextmanager
 
+import pytest
+
+import ai_agent_learning.main as main_module
 from ai_agent_learning.agent.state import (
     AgentRunResult,
     AgentState,
@@ -8,7 +13,7 @@ from ai_agent_learning.agent.state import (
     StopReason,
 )
 from ai_agent_learning.main import agent_run_result_to_messages
-from ai_agent_learning.schema import Message, ModelResponse
+from ai_agent_learning.schema import Context, Message, ModelResponse, Session
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 
 
@@ -82,3 +87,67 @@ def test_agent_run_result_to_messages_preserves_tool_events() -> None:
     ]
     assert messages[-1] == final_message
     assert messages.count(final_message) == 1
+
+
+@pytest.mark.parametrize("error", [None, RuntimeError, asyncio.CancelledError])
+def test_chat_prints_deltas_before_run_returns(monkeypatch, capsys, error):
+    session = Session(name="流式测试")
+    context = Context(context_id=session.session_id)
+    saved = []
+    partial = Message(role="assistant", content="我先查询。")
+    final = Message(role="assistant", content="结果如下。")
+
+    class FakeLoop:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run(self, request, *, on_text_delta, on_message_end):
+            on_text_delta("我先")
+            # run 尚未结束，终端就已经收到了第一块文字。
+            assert capsys.readouterr().out == "助手: 我先"
+            if error:
+                raise error("中断")
+            on_text_delta("查询。")
+            on_message_end()
+            assert capsys.readouterr().out == "查询。\n"
+            on_text_delta("结果")
+            assert capsys.readouterr().out == "助手: 结果"
+            on_text_delta("如下。")
+            on_message_end()
+            return AgentRunResult(
+                response=ModelResponse(message=final),
+                state=AgentState(
+                    status=AgentStatus.COMPLETED,
+                    stop_reason=StopReason.FINAL_RESPONSE,
+                    steps=[
+                        AgentStep(index=1, message=partial),
+                        AgentStep(index=2, message=final),
+                    ],
+                ),
+            )
+
+    @asynccontextmanager
+    async def runtime(api_key):
+        yield object(), object()
+
+    inputs = iter(["你好", "exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
+    monkeypatch.setattr(main_module, "configure_logging", lambda: None)
+    monkeypatch.setattr(main_module, "load_or_create_config", lambda: ("test", "glm"))
+    monkeypatch.setattr(main_module, "create_runtime", runtime)
+    monkeypatch.setattr(main_module, "AgentLoop", FakeLoop)
+    monkeypatch.setattr(main_module, "select_session", lambda: session)
+    monkeypatch.setattr(main_module, "select_context", lambda session_id: context)
+    monkeypatch.setattr(main_module, "save_session", saved.append)
+    monkeypatch.setattr(main_module, "save_context", saved.append)
+
+    if error:
+        with pytest.raises(error):
+            asyncio.run(main_module.run_chat())
+        assert capsys.readouterr().out == "\n"
+    else:
+        asyncio.run(main_module.run_chat())
+        assert capsys.readouterr().out == "如下。\n"
+        assert session.messages[-2:] == [partial, final]
+        assert context.messages[-2:] == [partial, final]
+        assert saved == [session, context]
