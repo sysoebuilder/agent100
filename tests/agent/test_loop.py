@@ -62,9 +62,12 @@ class FakeModelClient:
         tool_history: list[ToolCall | ToolResult],
         *,
         on_text_delta=None,
+        on_reasoning_delta=None,
     ) -> ModelResponse:
         self.histories.append(list(tool_history))
         response = next(self._responses)
+        if on_reasoning_delta:
+            on_reasoning_delta("思考片段")
         if response.message and on_text_delta:
             for text in ("现在是 ", "12 点。"):
                 on_text_delta(text)
@@ -89,15 +92,21 @@ def test_loop_executes_tool_and_returns_final_response() -> None:
 
     deltas = []
     ends = []
+    reasoning = []
+    responses = []
     result = asyncio.run(
         loop.run(
             request,
             on_text_delta=deltas.append,
             on_message_end=lambda: ends.append(list(deltas)),
+            on_reasoning_delta=reasoning.append,
+            on_response_end=lambda: responses.append(len(model_client.histories)),
         )
     )
     assert deltas == ["现在是 ", "12 点。"]
     assert ends == [["现在是 ", "12 点。"]]
+    assert reasoning == ["思考片段", "思考片段"]
+    assert responses == [1, 2]
 
     assert result.response is not None
     assert result.response.message is not None

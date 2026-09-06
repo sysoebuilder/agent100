@@ -38,6 +38,8 @@ class AgentLoop:
         *,
         on_text_delta: Callable[[str], None] | None = None,
         on_message_end: Callable[[], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
+        on_response_end: Callable[[], None] | None = None,
     ) -> AgentRunResult:
         tool_history: list[ToolCall | ToolResult] = []
         state = AgentState()
@@ -77,10 +79,14 @@ class AgentLoop:
                     tools=self._registry.list_specs(),
                     tool_history=tool_history,
                     on_text_delta=on_text_delta,
+                    on_reasoning_delta=on_reasoning_delta,
                 )
 
             if response.message is not None and on_message_end is not None:
                 on_message_end()
+            # 工具轮可能只有思考内容，没有正文，也需要结束临时思考展示。
+            if on_response_end is not None:
+                on_response_end()
 
             state.model_calls_used += 1
             agent_step = AgentStep(

@@ -3,11 +3,15 @@ import logging
 import re
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
 from ai_agent_learning.paths import get_data_dir
 from ai_agent_learning.schema import Session
+
+if TYPE_CHECKING:
+    from ai_agent_learning.ui.terminal import TerminalUI
 
 logger = logging.getLogger(__name__)
 
@@ -148,13 +152,15 @@ def create_session_name(
     return name
 
 
-def select_session() -> Session:
+def select_session(*, ui: "TerminalUI | None" = None) -> Session:
     sessions = load_session()
 
-    print("0. 创建新会话")
-
-    for index, session in enumerate(sessions, start=1):
-        print(f"{index}. {session.name}")
+    if ui is not None:
+        ui.show_sessions(sessions)
+    else:
+        print("0. 创建新会话")
+        for index, session in enumerate(sessions, start=1):
+            print(f"{index}. {session.name}")
 
     while True:
         choice = input("请选择会话编号: ").strip()
@@ -172,7 +178,7 @@ def select_session() -> Session:
             return session
 
         if not choice.isdigit():
-            print("请输入数字")
+            (ui.show_error if ui is not None else print)("请输入数字")
             continue
 
         index = int(choice) - 1
@@ -189,4 +195,4 @@ def select_session() -> Session:
             )
             return session
 
-        print("会话编号不存在")
+        (ui.show_error if ui is not None else print)("会话编号不存在")

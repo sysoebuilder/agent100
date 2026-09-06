@@ -375,6 +375,7 @@ class GlmModelClient:
         tool_history: list[ToolResult | ToolCall] | None = None,
         *,
         on_text_delta: Callable[[str], None] | None = None,
+        on_reasoning_delta: Callable[[str], None] | None = None,
     ) -> ModelResponse:
         """接收流式响应，实时通知正文片段，完整接收后返回可执行的工具调用。"""
         api_tools = self._build_api_tools(tools)
@@ -406,6 +407,8 @@ class GlmModelClient:
                     reasoning = getattr(delta, "reasoning_content", None)
                     if reasoning is not None:
                         reasoning_parts.append(reasoning)
+                        if reasoning and on_reasoning_delta is not None:
+                            on_reasoning_delta(reasoning)
                     for part in delta.tool_calls or []:
                         call = calls.setdefault(
                             part.index,

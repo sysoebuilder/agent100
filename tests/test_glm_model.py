@@ -351,6 +351,7 @@ class ChunkStream(httpx.AsyncByteStream):
 
 def test_stream_emits_text_immediately_and_preserves_tool_round_trip():
     deltas = []
+    reasoning_deltas = []
     bodies = []
     chunks = [
         stream_chunk({"content": "查询", "reasoning_content": "思考\n"}),
@@ -389,6 +390,7 @@ def test_stream_emits_text_immediately_and_preserves_tool_round_trip():
     def before_chunk(index):
         if index == 1:
             assert deltas == ["查询"]
+            assert reasoning_deltas == ["思考\n"]
 
     first_stream = ChunkStream(chunks, before_chunk)
     second_stream = ChunkStream(
@@ -411,7 +413,10 @@ def test_stream_emits_text_immediately_and_preserves_tool_round_trip():
         client = await client_with_transport(handler)
         try:
             first = await client.create_response_stream(
-                REQUEST, TOOLS, on_text_delta=deltas.append
+                REQUEST,
+                TOOLS,
+                on_text_delta=deltas.append,
+                on_reasoning_delta=reasoning_deltas.append,
             )
             assert first.message.content == "查询中"
             assert [call.id for call in first.tool_calls] == ["a", "b"]
@@ -432,6 +437,7 @@ def test_stream_emits_text_immediately_and_preserves_tool_round_trip():
 
     asyncio.run(run())
     assert deltas == ["查询", "中", "晴", "天"]
+    assert reasoning_deltas == ["思考\n", "继续"]
     assert first_stream.closed and second_stream.closed
     original = bodies[1]["messages"][1]
     assert original["reasoning_content"] == "思考\n继续"

@@ -39,7 +39,7 @@ AgentLoop、ContextManager、ConversationService、Planner 和 PlanExecutor 均�
 
 - `create_response`：只转换传入的工具定义，不再自动添加原生搜索配置。`tools=[]` 表示不提供工具；联网搜索通过注册的普通 `web_search` 工具执行，见 [搜索工具说明](web-search.md)。ArkModelClient 同样采用此行为，已移除 `include_web_search` 参数。
 - `create_response_stream`：GLM 专用流式接口，使用 `stream=True`，通过可选同步回调 `on_text_delta(text)` 逐块通知正文，最终返回完整的 `ModelResponse`。工具参数按 index 拼接后再解析，思考内容仅保留用于工具续调，不发送给正文回调。截断、缺少正常结束标记或无效工具参数会抛出异常；取消和异常时关闭响应流，不自动重放已经输出的内容。依据：[官方流式消息文档](https://docs.bigmodel.cn/cn/guide/capabilities/streaming)。
-- `AgentLoop.run(request, on_text_delta=callback, on_message_end=callback)`：使用 GLM 时调用流式接口，正文逐块回调，每条完整正文结束后通知 `on_message_end()`，随后执行工具、判断结束和记录历史。聊天 CLI 已连接回调并立即刷新输出，中间正文与最终正文分别换行，完整结果只用于记录、不重复打印。工具信息与思考内容不展示。Ark 仍使用原来的非流式接口；taskplan 的规划和步骤执行、上下文压缩继续使用原来的非流式接口。
+- `AgentLoop.run()`：通过 `on_text_delta(text)` 通知正文，通过 `on_reasoning_delta(text)` 通知 GLM 的思考片段。`on_message_end()` 仅在有完整正文时触发；`on_response_end()` 在每次完整模型响应后触发，包含只有思考和工具调用的响应。聊天终端展示临时思考区，正文开始后清除思考区，流式预览正文，结束后保留 Markdown 结果；工具调用信息不展示。Ark 仍使用原来的非流式接口；taskplan 的规划和步骤执行、上下文压缩继续使用原来的非流式接口。见 [终端界面](terminal-ui.md)。
 - 工具续调：把返回的 `response.tool_calls` 和执行产生的 `ToolResult` 按顺序传入下一次调用的 `tool_history`。`ToolCall.assistant_message` 保存原始参数和思考内容，需保留该字段，避免重建 ToolCall 时丢失。
 - `create_task_plan`：使用 JSON 模式，提供 TaskPlan schema 和工具描述，再通过 Pydantic 校验返回结果。规划请求不注册可执行工具；无效计划会抛出校验异常。
 - `tokenization`：请求 `tokenizer` 并读取 `usage.total_tokens`；网络或可重试状态码最多尝试 3 次。

@@ -34,6 +34,7 @@ from ai_agent_learning.tools.catalog import build_builtin_tools
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
+from ai_agent_learning.ui.terminal import TerminalUI
 
 API_KEY_ENV = "ZAI_API_KEY"
 REASONING_MODEL_ENV = "GLM_REASONING_MODEL"
@@ -220,14 +221,17 @@ async def run_chat() -> None:
             policy=agent_policy,
         )
 
-        session = select_session()
+        ui = TerminalUI()
+        session = select_session(ui=ui)
         context = select_context(session.session_id)
         context_manager.initialize_token_estimate(context.messages)
 
+        ui.show_header(reasoning_id, session.name)
+
         while True:
-            content = input("请输入消息: ").strip()
+            content = ui.read_message()
             if not content:
-                print("消息不能为空")
+                ui.show_notice("消息不能为空")
                 continue
 
             if content in {"exit", "quit"}:
@@ -257,46 +261,34 @@ async def run_chat() -> None:
                 messages=context.messages,
                 model=reasoning_id,
             )
-            streaming_started = False
-
-            def print_text_delta(text: str) -> None:
-                nonlocal streaming_started
-                if not text:
-                    return
-                if not streaming_started:
-                    print("助手: ", end="", flush=True)
-                    streaming_started = True
-                print(text, end="", flush=True)
-
-            def finish_message() -> None:
-                nonlocal streaming_started
-                if streaming_started:
-                    print(flush=True)
-                    streaming_started = False
-
+            ui.begin_turn()
             try:
                 agent_result = await agent_loop.run(
                     request,
-                    on_text_delta=print_text_delta,
-                    on_message_end=finish_message,
+                    on_text_delta=ui.text_delta,
+                    on_reasoning_delta=ui.reasoning_delta,
+                    on_response_end=ui.finish_response,
                 )
+            except Exception as error:  # noqa: BLE001 -- 单轮失败后恢复终端并允许继续输入。
+                ui.close_turn()
+                ui.show_error(str(error))
+                continue
             finally:
-                # 中断或网络异常时，避免下一个终端提示接在残缺正文后面。
-                finish_message()
+                ui.close_turn()
             if agent_result.state.stop_reason is not StopReason.FINAL_RESPONSE:
                 if agent_result.state.stop_reason is StopReason.MAX_STEPS:
-                    print("Agent 已超过最大步骤数")
+                    ui.show_error("Agent 已超过最大步骤数")
                     continue
                 if agent_result.state.stop_reason is StopReason.TOOL_FAILURE_LIMIT:
-                    print("Agent 已超过最大工具调用次数")
+                    ui.show_error("Agent 已超过最大工具调用次数")
                     continue
                 if agent_result.state.stop_reason is StopReason.INVALID_MODEL_RESPONSE:
-                    print("Agent 返回无效模型响应")
+                    ui.show_error("Agent 返回无效模型响应")
                     continue
                 if agent_result.state.stop_reason is StopReason.REPEATED_TOOL_CALL:
-                    print("Agent 重复调用工具")
+                    ui.show_error("Agent 重复调用工具")
                     continue
-                print("Agent 已停止，未知原因")
+                ui.show_error("Agent 已停止，未知原因")
 
             run_messages = agent_run_result_to_messages(agent_result)
             session.messages.extend(run_messages)

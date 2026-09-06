@@ -101,19 +101,23 @@ def test_chat_prints_deltas_before_run_returns(monkeypatch, capsys, error):
         def __init__(self, **kwargs):
             pass
 
-        async def run(self, request, *, on_text_delta, on_message_end):
+        async def run(
+            self, request, *, on_text_delta, on_reasoning_delta, on_response_end
+        ):
+            capsys.readouterr()  # 清除启动标题和输入提示。
+            on_reasoning_delta("临时思考")
             on_text_delta("我先")
             # run 尚未结束，终端就已经收到了第一块文字。
             assert capsys.readouterr().out == "助手: 我先"
             if error:
                 raise error("中断")
             on_text_delta("查询。")
-            on_message_end()
+            on_response_end()
             assert capsys.readouterr().out == "查询。\n"
             on_text_delta("结果")
             assert capsys.readouterr().out == "助手: 结果"
             on_text_delta("如下。")
-            on_message_end()
+            on_response_end()
             return AgentRunResult(
                 response=ModelResponse(message=final),
                 state=AgentState(
@@ -136,18 +140,25 @@ def test_chat_prints_deltas_before_run_returns(monkeypatch, capsys, error):
     monkeypatch.setattr(main_module, "load_or_create_config", lambda: ("test", "glm"))
     monkeypatch.setattr(main_module, "create_runtime", runtime)
     monkeypatch.setattr(main_module, "AgentLoop", FakeLoop)
-    monkeypatch.setattr(main_module, "select_session", lambda: session)
+    monkeypatch.setattr(main_module, "select_session", lambda **kwargs: session)
     monkeypatch.setattr(main_module, "select_context", lambda session_id: context)
     monkeypatch.setattr(main_module, "save_session", saved.append)
     monkeypatch.setattr(main_module, "save_context", saved.append)
 
-    if error:
+    if error is asyncio.CancelledError:
         with pytest.raises(error):
             asyncio.run(main_module.run_chat())
         assert capsys.readouterr().out == "\n"
+    elif error:
+        asyncio.run(main_module.run_chat())
+        output = capsys.readouterr().out
+        assert "错误 · 中断" in output
+        assert "临时思考" not in output
     else:
         asyncio.run(main_module.run_chat())
-        assert capsys.readouterr().out == "如下。\n"
+        output = capsys.readouterr().out
+        assert output.startswith("如下。\n")
+        assert "结果如下。" not in output
         assert session.messages[-2:] == [partial, final]
         assert context.messages[-2:] == [partial, final]
         assert saved == [session, context]
