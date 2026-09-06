@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 
 from ai_agent_learning.agent.context import ContextManager
@@ -116,8 +117,13 @@ class AgentLoop:
 
             tool_history.extend(response.tool_calls)
 
-            for tool_call in response.tool_calls:
-                result = await self._executor.execute_with_recovery(call=tool_call)
-                state.tool_calls_used += 1
-                tool_history.append(result)
-                agent_step.tool_results.append(result)
+            # 同一轮并发执行，gather 按调用顺序返回结果。
+            results = await asyncio.gather(
+                *(
+                    self._executor.execute_with_recovery(call=tool_call)
+                    for tool_call in response.tool_calls
+                )
+            )
+            state.tool_calls_used += len(results)
+            tool_history.extend(results)
+            agent_step.tool_results.extend(results)

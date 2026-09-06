@@ -143,3 +143,57 @@ def test_loop_keeps_ark_non_streaming():
     )
     assert result.response == response
     client.create_response.assert_awaited_once()
+
+
+def test_loop_runs_tools_concurrently_and_preserves_result_order() -> None:
+    async def run_case() -> None:
+        second_finished = asyncio.Event()
+        completion_order: list[str] = []
+
+        async def execute(call: ToolCall) -> ToolResult:
+            if call.id == "call-1":
+                await second_finished.wait()
+            completion_order.append(call.id)
+            if call.id == "call-2":
+                second_finished.set()
+            return ToolResult(
+                call_id=call.id,
+                success=call.id == "call-1",
+                error={"message": "工具失败"} if call.id == "call-2" else None,
+            )
+
+        calls = [
+            ToolCall(id=f"call-{index}", name="current_time", arguments={})
+            for index in (1, 2)
+        ]
+        client = FakeModelClient()
+        client._responses = iter([
+            ModelResponse(tool_calls=calls),
+            ModelResponse(message=Message(role="assistant", content="完成")),
+        ])
+        executor = FakeExecutor()
+        executor.execute_with_recovery = AsyncMock(side_effect=execute)
+        loop = AgentLoop(
+            model_client=client,  # type: ignore[arg-type]
+            registry=FakeRegistry(),  # type: ignore[arg-type]
+            executor=executor,  # type: ignore[arg-type]
+            context_manager=FakeContextManager(),  # type: ignore[arg-type]
+            policy=AgentPolicy(AgentLimits(max_steps=2)),
+        )
+        result = await asyncio.wait_for(
+            loop.run(ModelRequest(
+                model="model",
+                messages=[Message(role="user", content="查询时间")],
+            )),
+            timeout=2,
+        )
+
+        assert completion_order == ["call-2", "call-1"]
+        results = result.state.steps[0].tool_results
+        assert [item.call_id for item in results] == ["call-1", "call-2"]
+        assert [item.success for item in results] == [True, False]
+        assert client.histories[1] == [*calls, *results]
+        assert result.state.tool_calls_used == 2
+        assert result.state.status is AgentStatus.COMPLETED
+
+    asyncio.run(run_case())
