@@ -1,5 +1,6 @@
 import asyncio
 import json
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -119,9 +120,13 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
             )
         body = json.loads(request.content)
         bodies.append(body)
-        assert len(body["tools"]) == 2
+        assert len(body["tools"]) == 3
         assert all(tool["type"] == "function" for tool in body["tools"])
-        tool = body["tools"][1]
+        tool = next(
+            item for item in body["tools"]
+            if (item["function"] if client_type is GlmModelClient else item)["name"]
+            == "web_search"
+        )
         function = tool["function"] if client_type is GlmModelClient else tool
         assert function["name"] == "web_search"
         assert function["parameters"]["required"] == ["query"]
@@ -164,9 +169,11 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
                 base_url="https://search.test/",
                 transport=httpx.MockTransport(search_handler),
             ) as http_client:
-                registry = ToolRegistry(
-                    tools=build_builtin_tools(WebSearchClient(http_client))
-                )
+                with patch(
+                    "ai_agent_learning.tools.builtin.web_search.handler",
+                    WebSearchClient(http_client).handler,
+                ):
+                    registry = ToolRegistry(tools=build_builtin_tools())
                 loop = AgentLoop(
                     model_client=client,
                     registry=registry,
@@ -244,9 +251,11 @@ def test_planner_search_step_then_model_step(client_type):
                 base_url="https://search.test/",
                 transport=httpx.MockTransport(search_handler),
             ) as http_client:
-                registry = ToolRegistry(
-                    tools=build_builtin_tools(WebSearchClient(http_client))
-                )
+                with patch(
+                    "ai_agent_learning.tools.builtin.web_search.handler",
+                    WebSearchClient(http_client).handler,
+                ):
+                    registry = ToolRegistry(tools=build_builtin_tools())
                 parsed = await Planner(client, registry).create_plan(REQUEST)
                 assert not searches  # 生成计划阶段不能触发搜索。
                 execution = PlanExecution(

@@ -1,3 +1,4 @@
+import os
 from typing import Any, Literal
 
 import httpx
@@ -52,8 +53,22 @@ class SearchResponse(BaseModel):
     search_result: list[SearchResult]
 
 
+async def handler(query: str, count: int = 5) -> dict[str, Any]:
+    """每次调用独立管理 HTTP 连接，重试由 ToolExecutor 管理。"""
+    api_key = os.getenv("ZAI_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("缺少 ZAI_API_KEY 配置")
+
+    async with httpx.AsyncClient(
+        base_url="https://open.bigmodel.cn/api/paas/v4/",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=httpx.Timeout(10.0, connect=5.0),
+    ) as client:
+        return await WebSearchClient(client).handler(query=query, count=count)
+
+
 class WebSearchClient:
-    """独立搜索 API；HTTP 连接由应用注入和关闭，重试由 ToolExecutor 管理。
+    """工具内部的搜索 API 适配器，可注入模拟 HTTP 连接用于离线测试。
 
     https://docs.bigmodel.cn/api-reference/工具-api/网络搜索
     """

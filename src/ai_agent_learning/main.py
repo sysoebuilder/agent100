@@ -1,11 +1,10 @@
 import json
 import os
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack, asynccontextmanager
+from contextlib import asynccontextmanager
 from getpass import getpass
 from pathlib import Path
 
-import httpx
 from dotenv import load_dotenv, set_key
 
 from ai_agent_learning.agent.context import ContextManager
@@ -29,7 +28,6 @@ from ai_agent_learning.planning.state import (
 )
 from ai_agent_learning.schema import Message, ModelRequest
 from ai_agent_learning.session import create_session_name, save_session, select_session
-from ai_agent_learning.tools.builtin.web_search import WebSearchClient
 from ai_agent_learning.tools.catalog import build_builtin_tools
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
@@ -179,20 +177,13 @@ def load_or_create_config() -> tuple[str, str]:
 async def create_runtime(
     api_key: str,
 ) -> AsyncIterator[tuple[GlmModelClient, ToolRegistry]]:
-    """统一管理模型与搜索连接，包括初始化失败和用户取消时的清理。"""
-    async with AsyncExitStack() as stack:
-        client = GlmModelClient(api_key=api_key)
-        stack.push_async_callback(client.close)
-        search_http_client = await stack.enter_async_context(
-            httpx.AsyncClient(
-                base_url="https://open.bigmodel.cn/api/paas/v4/",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=httpx.Timeout(10.0, connect=5.0),
-            )
-        )
-        search_client = WebSearchClient(search_http_client)
-        registry = ToolRegistry(tools=build_builtin_tools(search_client))
+    """管理模型连接，包括初始化失败和用户取消时的清理。"""
+    client = GlmModelClient(api_key=api_key)
+    try:
+        registry = ToolRegistry(tools=build_builtin_tools())
         yield client, registry
+    finally:
+        await client.close()
 
 
 async def run_chat() -> None:

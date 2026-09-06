@@ -3,6 +3,7 @@ from typing import ClassVar
 
 import pytest
 from rich.console import Console
+from rich.live import Live
 
 from ai_agent_learning.ui.terminal import TerminalUI
 
@@ -42,6 +43,32 @@ def render(renderable):
     output = StringIO()
     Console(file=output, width=60).print(renderable)
     return output.getvalue()
+
+
+def test_long_answer_is_not_expanded_when_stopping_preview(monkeypatch):
+    # 使用真实 Rich；FakeLive 不会复现 stop() 时的最后一次刷新。
+    monkeypatch.setenv("TERM", "xterm-256color")
+    output = StringIO()
+    console = Console(
+        file=output, force_terminal=True, color_system=None,
+        width=60, height=8, legacy_windows=False,
+    )
+
+    def manual_live(*args, **kwargs):
+        return Live(*args, **kwargs, auto_refresh=False)
+
+    monkeypatch.setattr("ai_agent_learning.ui.terminal.Live", manual_live)
+    ui = TerminalUI(console)
+    answer = "\n\n".join(f"Paragraph {index}" for index in range(20))
+    ui.text_delta(answer + "\n\nEND_OF_ANSWER")
+    assert "END_OF_ANSWER" not in output.getvalue()
+    boundary = len(output.getvalue())
+    ui.finish_response()
+    ui.close_turn()
+
+    committed = output.getvalue()[boundary:]
+    assert committed.count("END_OF_ANSWER") == 1
+    assert committed.count("Paragraph 0") == 1
 
 
 def test_thinking_is_transient_and_replaced_by_streaming_answer(terminal):

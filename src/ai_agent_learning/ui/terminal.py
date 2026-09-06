@@ -121,6 +121,9 @@ class TerminalUI:
 
     def _stop_live(self) -> None:
         if self._live is not None:
+            # Rich.stop() 会切换为 visible 并再次刷新；先清空，避免长正文
+            # 在停止时滚入终端历史区，无法擦除后又被正式打印一次。
+            self._live.update(Text(""), refresh=True)
             self._live.stop()
             self._live = None
 

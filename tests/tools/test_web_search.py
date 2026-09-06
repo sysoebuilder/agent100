@@ -1,11 +1,11 @@
 import asyncio
 import json
-from unittest.mock import AsyncMock
+import os
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
 
-from ai_agent_learning.tools.builtin.web_search import WebSearchClient
 from ai_agent_learning.tools.catalog import build_builtin_tools
 from ai_agent_learning.tools.contracts import ToolCall
 from ai_agent_learning.tools.executor import ToolExecutor
@@ -14,17 +14,24 @@ from ai_agent_learning.tools.registry import ToolRegistry
 
 def execute_search(handler, arguments):
     async def run():
-        async with httpx.AsyncClient(
-            base_url="https://open.bigmodel.cn/api/paas/v4/",
-            headers={"Authorization": "Bearer test-key"},
-            transport=httpx.MockTransport(handler),
-        ) as http_client:
-            registry = ToolRegistry(
-                tools=build_builtin_tools(WebSearchClient(http_client))
-            )
-            return await ToolExecutor(registry).execute_with_recovery(
+        clients = []
+        client_type = httpx.AsyncClient
+
+        def create_client(**kwargs):
+            client = client_type(**kwargs, transport=httpx.MockTransport(handler))
+            clients.append(client)
+            return client
+
+        with patch.dict(os.environ, {"ZAI_API_KEY": "test-key"}), patch(
+            "ai_agent_learning.tools.builtin.web_search.httpx.AsyncClient",
+            side_effect=create_client,
+        ):
+            registry = ToolRegistry(tools=build_builtin_tools())
+            result = await ToolExecutor(registry).execute_with_recovery(
                 ToolCall("search-1", "web_search", arguments)
             )
+        assert all(client.is_closed for client in clients)
+        return result
 
     return asyncio.run(run())
 
