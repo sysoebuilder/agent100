@@ -8,6 +8,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ai_agent_learning.schema import Session
+from ai_agent_learning.tools.contracts import ToolCall, ToolSpec
 
 
 class TerminalUI:
@@ -39,6 +40,21 @@ class TerminalUI:
         self.console.print()
         self.console.rule(Text("你", style="bold cyan"), align="left", style="dim")
         return input("› ").strip()
+
+    def confirm_tool_call(self, spec: ToolSpec, call: ToolCall, reason: str) -> bool:
+        # 同步确认在事件循环中依次执行，避免并发工具同时读取终端输入。
+        self._stop_live()
+        self.console.rule(Text("工具执行确认", style="bold yellow"))
+        self.console.print(Text(f"工具：{spec.name}  风险：{spec.risk_level.value}"))
+        self.console.print(Text(reason))
+        for name, value in call.arguments.items():
+            self.console.print(Text(f"{name}：{value}"))
+        try:
+            return input("确认执行以上操作？[y/N]: ").strip().lower() in {"y", "yes"}
+        except EOFError:
+            return False
+        finally:
+            self.begin_turn()
 
     def show_sessions(self, sessions: list[Session]) -> None:
         table = Table(

@@ -15,6 +15,8 @@ class ToolSpec():
     risk_level: RiskLevel
     input_schema: dict[str, Any]
     has_side_effects: bool = False
+    # True 表示工具实现保证重复执行不会产生额外副作用。
+    supports_idempotent_retry: bool = False
 
 @dataclass
 class ToolCall():

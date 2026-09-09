@@ -29,7 +29,7 @@ from ai_agent_learning.planning.state import (
 from ai_agent_learning.schema import Message, ModelRequest
 from ai_agent_learning.session import create_session_name, save_session, select_session
 from ai_agent_learning.tools.catalog import build_builtin_tools
-from ai_agent_learning.tools.contracts import ToolCall, ToolResult
+from ai_agent_learning.tools.contracts import RiskLevel, ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
 from ai_agent_learning.ui.terminal import TerminalUI
@@ -191,8 +191,11 @@ async def run_chat() -> None:
     api_key, reasoning_id = load_or_create_config()
 
     async with create_runtime(api_key) as (client, tool_registry):
+        ui = TerminalUI()
         tool_executor = ToolExecutor(
             registry=tool_registry,
+            request_approval=ui.confirm_tool_call,
+            confirmable_risks=frozenset({RiskLevel.HIGH}),
         )
 
         context_manager = ContextManager(
@@ -212,7 +215,6 @@ async def run_chat() -> None:
             policy=agent_policy,
         )
 
-        ui = TerminalUI()
         session = select_session(ui=ui)
         context = select_context(session.session_id)
         context_manager.initialize_token_estimate(context.messages)

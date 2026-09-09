@@ -133,6 +133,9 @@ class ToolPolicy:
         if has_idempotency_key:
             return RecoveryDecision.RETRY_SAME_KEY
 
+        if spec.supports_idempotent_retry:
+            return RecoveryDecision.RETRY
+
         if failure.kind is FailureKind.UNKNOWN_OUTCOME:
             return RecoveryDecision.NEEDS_REVIEW
 
