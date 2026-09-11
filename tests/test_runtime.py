@@ -26,6 +26,7 @@ def test_runtime_closes_model_connection(failure_stage, monkeypatch):
                 assert {spec.name for spec in registry.list_specs()} == {
                     "current_time",
                     "send_email",
+                    "run_command",
                     "web_search",
                 }
                 if failure_stage == "body":

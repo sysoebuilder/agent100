@@ -120,7 +120,7 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
             )
         body = json.loads(request.content)
         bodies.append(body)
-        assert len(body["tools"]) == 3
+        assert len(body["tools"]) == 4
         assert all(tool["type"] == "function" for tool in body["tools"])
         tool = next(
             item for item in body["tools"]

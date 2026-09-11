@@ -103,7 +103,7 @@ class ToolExecutor:
         try:
             data = await asyncio.wait_for(
                 tool.handler(**call.arguments),
-                timeout=self._timeout_seconds,
+                timeout=None if tool.spec.manages_own_timeout else self._timeout_seconds,
             )
         except TimeoutError:
             return ToolResult(
@@ -200,7 +200,7 @@ class ToolExecutor:
             try:
                 data = await asyncio.wait_for(
                     tool.handler(**call.arguments),
-                    timeout=self._timeout_seconds,
+                    timeout=None if tool.spec.manages_own_timeout else self._timeout_seconds,
                 )
             except Exception as error:  # noqa: BLE001
                 failure = classify_tool_error(
