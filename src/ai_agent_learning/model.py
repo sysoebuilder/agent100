@@ -5,12 +5,6 @@ from typing import Any, Literal, cast
 import httpx
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessage, ChatCompletionMessageParam
-from openai.types.responses import (
-    FunctionToolParam,
-    ResponseFunctionToolCall,
-    ResponseInputParam,
-    ToolParam,
-)
 
 from ai_agent_learning.planning.schema import TaskPlan
 from ai_agent_learning.retry import retry_async
@@ -18,234 +12,8 @@ from ai_agent_learning.schema import Message, ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult, ToolSpec
 
 
-class ArkModelClient:
-    def __init__(
-        self,
-        api_key: str,
-        base_url: str,
-    ):
-        self._client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        self._http_client = httpx.AsyncClient(
-            base_url=base_url,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=httpx.Timeout(
-                30.0,
-                connect=5.0,
-            ),
-        )
-
-    @staticmethod
-    def _build_api_tools(
-        tools: list[ToolSpec],
-    ) -> list[ToolParam]:
-        function_tools: list[FunctionToolParam] = [
-            {
-                "type": "function",
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.input_schema,
-                # ToolSpec 允许可选参数；本地执行器负责 JSON Schema 校验。
-                "strict": False,
-            }
-            for spec in tools
-        ]
-        api_tools: list[ToolParam] = [*function_tools]
-
-        return api_tools
-
-    async def create_response(
-        self,
-        request: ModelRequest,
-        tools: list[ToolSpec],
-        tool_history: list[ToolResult | ToolCall] | None = None,
-    ) -> ModelResponse:
-        api_tools = self._build_api_tools(tools)
-
-        model_input: ResponseInputParam = [
-            {
-                "role": message.role,
-                "content": message.content,
-            }
-            for message in request.messages
-        ]
-
-        for history_item in tool_history or []:
-            if isinstance(history_item, ToolCall):
-                model_input.append(
-                    {
-                        "type": "function_call",
-                        "call_id": history_item.id,
-                        "name": history_item.name,
-                        "arguments": json.dumps(
-                            history_item.arguments,
-                            ensure_ascii=False,
-                        ),
-                    }
-                )
-
-            elif isinstance(history_item, ToolResult):
-                model_input.append(
-                    {
-                        "type": "function_call_output",
-                        "call_id": history_item.call_id,
-                        "output": json.dumps(
-                            {
-                                "success": history_item.success,
-                                "data": history_item.data,
-                                "error": history_item.error,
-                            },
-                            ensure_ascii=False,
-                        ),
-                    }
-                )
-
-        if api_tools:
-            response = await self._client.responses.create(
-                model=request.model,
-                store=False,
-                input=model_input,
-                tools=api_tools,
-                tool_choice="auto",
-            )
-        else:
-            response = await self._client.responses.create(
-                model=request.model,
-                store=False,
-                input=model_input,
-            )
-
-        tool_calls: list[ToolCall] = []
-
-        for output_item in response.output:
-            if not isinstance(
-                output_item,
-                ResponseFunctionToolCall,
-            ):
-                continue
-
-            arguments = json.loads(output_item.arguments)
-
-            if not isinstance(arguments, dict):
-                raise TypeError("工具调用参数必须是 JSON 对象")
-
-            tool_calls.append(
-                ToolCall(
-                    id=output_item.call_id,
-                    name=output_item.name,
-                    arguments=arguments,
-                )
-            )
-
-        output_text = response.output_text.strip()
-
-        message = (
-            Message(
-                role="assistant",
-                content=output_text,
-            )
-            if output_text
-            else None
-        )
-
-        return ModelResponse(
-            message=message,
-            tool_calls=tool_calls,
-        )
-
-    async def create_task_plan(
-        self,
-        request: ModelRequest,
-        tools: list[ToolSpec],
-    ) -> TaskPlan:
-        # 规划阶段只展示工具说明，不注册可执行工具。
-        instructions = Message(
-            role="system",
-            content=(
-                "请生成任务计划，不要执行工具。可用于计划的工具定义：\n"
-                + json.dumps(self._build_api_tools(tools), ensure_ascii=False)
-            ),
-        )
-        response = await self._client.responses.parse(
-            model=request.model,
-            store=False,
-            input=[
-                {
-                    "role": message.role,
-                    "content": message.content,
-                }
-                for message in [instructions, *request.messages]
-            ],
-            text_format=TaskPlan,
-        )
-
-        if response.output_parsed is None:
-            raise ValueError("response.output_parsed is None")
-
-        return response.output_parsed
-
-    async def tokenization(self, messages: list[Message], model: str) -> int:
-        async def create_request() -> httpx.Response:
-            response = await self._http_client.post(
-                "tokenization",
-                json={
-                    "model": model,
-                    "text": [
-                        f"{message.role}: {message.content}" for message in messages
-                    ],
-                },
-            )
-            response.raise_for_status()
-            return response
-
-        response = await retry_async(create_request, max_attempts=3)
-
-        result = response.json()
-        total_tokens = sum(item["total_tokens"] for item in result["data"])
-        return total_tokens
-
-    async def compact_context(self, messages: list[Message], model: str) -> Message:
-        compression_input = [
-            {
-                "role": "system",
-                "content": (
-                    "你的任务是压缩随后提供的历史对话。"
-                    "请保留重要事实、用户偏好、已有结论、"
-                    "未完成任务和必要细节。"
-                    "不要回答历史问题，只输出摘要。"
-                ),
-            },
-            *[
-                {
-                    "role": message.role,
-                    "content": message.content,
-                }
-                for message in messages
-            ],
-        ]
-
-        response = await self._client.responses.create(
-            model=model,
-            store=False,
-            input=compression_input,  # type: ignore
-        )
-        if response.output_text is None:
-            raise ValueError("response.output_text is None")
-
-        return Message(role="system", content=f"历史对话摘要: {response.output_text}")
-
-    async def close(self) -> None:
-        await self._http_client.aclose()
-        await self._client.close()
-
-
 class GlmModelClient:
-    """通过智谱的 OpenAI 兼容接口实现与 Ark 相同的异步操作。
+    """通过智谱的 OpenAI 兼容接口统一使用流式生成。
 
     文档：https://docs.bigmodel.cn/cn/guide/capabilities/thinking
     工具续调：https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode
@@ -348,26 +116,6 @@ class GlmModelClient:
                 )
         return cast(list[ChatCompletionMessageParam], api_messages)
 
-    async def create_response(
-        self,
-        request: ModelRequest,
-        tools: list[ToolSpec],
-        tool_history: list[ToolResult | ToolCall] | None = None,
-    ) -> ModelResponse:
-        api_tools = self._build_api_tools(tools)
-        tool_options: dict[str, Any] = {}
-        if api_tools:
-            tool_options = {"tools": api_tools, "tool_choice": "auto"}
-        response = await self._client.chat.completions.create(
-            model=request.model,
-            messages=self._build_messages(request.messages, tool_history),
-            extra_body={"thinking": {"type": self._thinking}},
-            **tool_options,
-        )
-        if not response.choices:
-            raise ValueError("GLM 响应没有 choices")
-        return self._parse_response(response.choices[0].message)
-
     async def create_response_stream(
         self,
         request: ModelRequest,
@@ -376,12 +124,15 @@ class GlmModelClient:
         *,
         on_text_delta: Callable[[str], None] | None = None,
         on_reasoning_delta: Callable[[str], None] | None = None,
+        json_output: bool = False,
     ) -> ModelResponse:
         """接收流式响应，实时通知正文片段，完整接收后返回可执行的工具调用。"""
         api_tools = self._build_api_tools(tools)
         tool_options: dict[str, Any] = {}
         if api_tools:
             tool_options = {"tools": api_tools, "tool_choice": "auto"}
+        if json_output:
+            tool_options["response_format"] = {"type": "json_object"}
         stream = await self._client.chat.completions.create(
             model=request.model,
             messages=self._build_messages(request.messages, tool_history),
@@ -500,15 +251,16 @@ class GlmModelClient:
                 )
             ),
         )
-        response = await self._client.chat.completions.create(
-            model=request.model,
-            messages=self._build_messages([instructions, *request.messages]),
-            response_format={"type": "json_object"},
-            extra_body={"thinking": {"type": self._thinking}},
+        response = await self.create_response_stream(
+            request=ModelRequest(
+                model=request.model, messages=[instructions, *request.messages],
+            ),
+            tools=[],
+            json_output=True,
         )
-        if not response.choices or not response.choices[0].message.content:
+        if response.message is None or response.tool_calls:
             raise ValueError("GLM 没有返回任务计划")
-        return TaskPlan.model_validate_json(response.choices[0].message.content)
+        return TaskPlan.model_validate_json(response.message.content)
 
     async def tokenization(self, messages: list[Message], model: str) -> int:
         async def create_request() -> httpx.Response:
@@ -535,19 +287,15 @@ class GlmModelClient:
                 "不要回答历史问题，只输出摘要。"
             ),
         )
-        response = await self._client.chat.completions.create(
-            model=model,
-            messages=self._build_messages([instructions, *messages]),
-            extra_body={"thinking": {"type": self._thinking}},
+        response = await self.create_response_stream(
+            request=ModelRequest(model=model, messages=[instructions, *messages]),
+            tools=[],
         )
-        if (
-            not response.choices
-            or not (response.choices[0].message.content or "").strip()
-        ):
+        if response.message is None or response.tool_calls:
             raise ValueError("GLM 没有返回历史对话摘要")
         return Message(
             role="system",
-            content=f"历史对话摘要: {response.choices[0].message.content}",
+            content=f"历史对话摘要: {response.message.content}",
         )
 
     async def close(self) -> None:

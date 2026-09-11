@@ -2,7 +2,7 @@ import logging
 import secrets
 import time
 
-from ai_agent_learning.model import ArkModelClient, GlmModelClient
+from ai_agent_learning.model import GlmModelClient
 from ai_agent_learning.planning.schema import TaskPlan
 from ai_agent_learning.schema import (
     Message,
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class ConversationService:
     def __init__(
         self,
-        client: ArkModelClient | GlmModelClient,
+        client: GlmModelClient,
         reasoning_model: str,
         tokenizer_model: str,
         context_limit: int = 1_000_000,

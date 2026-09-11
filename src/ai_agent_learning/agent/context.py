@@ -3,7 +3,7 @@ import logging
 import math
 from collections.abc import Sequence
 
-from ai_agent_learning.model import ArkModelClient, GlmModelClient
+from ai_agent_learning.model import GlmModelClient
 from ai_agent_learning.schema import Message, ModelRequest
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 
@@ -17,7 +17,7 @@ class ContextLimitExceeded(RuntimeError):
 class ContextManager:
     def __init__(
         self,
-        client: ArkModelClient | GlmModelClient,
+        client: GlmModelClient,
         tokenizer_model: str,
         *,
         context_limit: int = 1_000_000,

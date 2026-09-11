@@ -1,10 +1,9 @@
 import asyncio
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 from ai_agent_learning.agent.loop import AgentLoop
 from ai_agent_learning.agent.policy import AgentLimits, AgentPolicy
 from ai_agent_learning.agent.state import AgentStatus, StopReason
-from ai_agent_learning.model import ArkModelClient
 from ai_agent_learning.schema import Message, ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 
@@ -123,26 +122,6 @@ def test_loop_executes_tool_and_returns_final_response() -> None:
     assert len(model_client.histories[1]) == 2
     assert isinstance(model_client.histories[1][0], ToolCall)
     assert isinstance(model_client.histories[1][1], ToolResult)
-
-
-def test_loop_keeps_ark_non_streaming():
-    client = Mock(spec=ArkModelClient)
-    response = ModelResponse(message=Message(role="assistant", content="完成"))
-    client.create_response = AsyncMock(return_value=response)
-    loop = AgentLoop(
-        model_client=client,
-        registry=FakeRegistry(),  # type: ignore[arg-type]
-        executor=FakeExecutor(),  # type: ignore[arg-type]
-        context_manager=FakeContextManager(),  # type: ignore[arg-type]
-        policy=AgentPolicy(AgentLimits()),
-    )
-    result = asyncio.run(
-        loop.run(
-            ModelRequest(model="ark", messages=[Message(role="user", content="你好")])
-        )
-    )
-    assert result.response == response
-    client.create_response.assert_awaited_once()
 
 
 def test_loop_runs_tools_concurrently_and_preserves_result_order() -> None:

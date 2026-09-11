@@ -11,7 +11,7 @@ from ai_agent_learning.agent.state import (
     AgentState,
     AgentStep,
 )
-from ai_agent_learning.model import ArkModelClient, GlmModelClient
+from ai_agent_learning.model import GlmModelClient
 from ai_agent_learning.schema import ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
@@ -21,7 +21,7 @@ from ai_agent_learning.tools.registry import ToolRegistry
 class AgentLoop:
     def __init__(
         self,
-        model_client: ArkModelClient | GlmModelClient,
+        model_client: GlmModelClient,
         registry: ToolRegistry,
         executor: ToolExecutor,
         policy: AgentPolicy,
@@ -68,20 +68,13 @@ class AgentLoop:
                 tool_history=tool_history,
             )
 
-            if isinstance(self._model_client, ArkModelClient):
-                response = await self._model_client.create_response(
-                    request=request,
-                    tools=self._registry.list_specs(),
-                    tool_history=tool_history,
-                )
-            else:
-                response = await self._model_client.create_response_stream(
-                    request=request,
-                    tools=self._registry.list_specs(),
-                    tool_history=tool_history,
-                    on_text_delta=on_text_delta,
-                    on_reasoning_delta=on_reasoning_delta,
-                )
+            response = await self._model_client.create_response_stream(
+                request=request,
+                tools=self._registry.list_specs(),
+                tool_history=tool_history,
+                on_text_delta=on_text_delta,
+                on_reasoning_delta=on_reasoning_delta,
+            )
 
             if response.message is not None and on_message_end is not None:
                 on_message_end()

@@ -3,7 +3,7 @@ from collections.abc import Callable
 
 from pydantic import JsonValue
 
-from ai_agent_learning.model import ArkModelClient, GlmModelClient
+from ai_agent_learning.model import GlmModelClient
 from ai_agent_learning.planning.schema import ExecutorType, PlanStep
 from ai_agent_learning.planning.state import (
     PlanExecution,
@@ -21,7 +21,7 @@ StepStatusCallback = Callable[[PlanStep, StepExecution], None]
 class PlanExecutor:
     def __init__(
         self,
-        model_client: ArkModelClient | GlmModelClient,
+        model_client: GlmModelClient,
         model: str,
         tool_executor: ToolExecutor,
         *,
@@ -169,7 +169,7 @@ class PlanExecutor:
                 ),
             ],
         )
-        response = await self._model_client.create_response(
+        response = await self._model_client.create_response_stream(
             request=request,
             tools=[],
         )

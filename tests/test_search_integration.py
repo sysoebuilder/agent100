@@ -3,13 +3,12 @@ import json
 from unittest.mock import patch
 
 import httpx
-import pytest
 from openai import AsyncOpenAI
 
 from ai_agent_learning.agent.context import ContextManager
 from ai_agent_learning.agent.loop import AgentLoop
 from ai_agent_learning.agent.policy import AgentLimits, AgentPolicy
-from ai_agent_learning.model import ArkModelClient, GlmModelClient
+from ai_agent_learning.model import GlmModelClient
 from ai_agent_learning.planning.executor import PlanExecutor
 from ai_agent_learning.planning.planner import Planner
 from ai_agent_learning.planning.state import PlanExecution, PlanStatus, StepExecution
@@ -34,65 +33,40 @@ SEARCH_RESULT = {
 }
 
 
-def model_response(client_type, text=None, call=False):
+def model_response(text=None, call=False):
     arguments = json.dumps({"query": "智谱官方文档"}, ensure_ascii=False)
-    if client_type is GlmModelClient:
-        message = {"role": "assistant", "content": text}
-        if call:
-            message.update(
-                reasoning_content="需要先查官方资料",
-                tool_calls=[
-                    {
-                        "id": "call-search",
-                        "type": "function",
-                        "function": {"name": "web_search", "arguments": arguments},
-                    }
-                ],
-            )
-        return {
-            "id": "chat-1",
-            "object": "chat.completion",
-            "created": 0,
-            "model": REQUEST.model,
-            "choices": [{"index": 0, "finish_reason": "stop", "message": message}],
-        }
-    output = (
-        [
-            {
-                "id": "fc-1",
-                "type": "function_call",
-                "call_id": "call-search",
-                "name": "web_search",
-                "arguments": arguments,
-                "status": "completed",
-            }
-        ]
-        if call
-        else [
-            {
-                "id": "msg-1",
-                "type": "message",
-                "role": "assistant",
-                "status": "completed",
-                "content": [{"type": "output_text", "text": text, "annotations": []}],
-            }
-        ]
-    )
+    message = {"role": "assistant", "content": text}
+    if call:
+        message.update(
+            reasoning_content="需要先查官方资料",
+            tool_calls=[
+                {
+                    "id": "call-search",
+                    "type": "function",
+                    "function": {"name": "web_search", "arguments": arguments},
+                }
+            ],
+        )
     return {
-        "id": "resp-1",
-        "object": "response",
-        "created_at": 0,
+        "id": "chat-1",
+        "object": "chat.completion",
+        "created": 0,
         "model": REQUEST.model,
-        "status": "completed",
-        "output": output,
-        "parallel_tool_calls": True,
-        "tool_choice": "auto",
-        "tools": [],
+        "choices": [{"index": 0, "finish_reason": "stop", "message": message}],
     }
 
+def stream_response(response):
+    response["object"] = "chat.completion.chunk"
+    choice = response["choices"][0]
+    choice["delta"] = choice.pop("message")
+    return httpx.Response(
+        200, headers={"content-type": "text/event-stream"},
+        content=f"data: {json.dumps(response)}\n\ndata: [DONE]\n\n",
+    )
 
-async def make_client(client_type, handler):
-    client = client_type(api_key="model-key", base_url="https://model.test/api/")
+
+async def make_client(handler):
+    client = GlmModelClient(api_key="model-key", base_url="https://model.test/api/")
     await client.close()
     client._http_client = httpx.AsyncClient(
         base_url="https://model.test/api/",
@@ -107,8 +81,7 @@ async def make_client(client_type, handler):
     return client
 
 
-@pytest.mark.parametrize("client_type", [ArkModelClient, GlmModelClient])
-def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
+def test_agent_search_round_trip_uses_registry_and_records_results():
     bodies = []
     searches = []
 
@@ -124,38 +97,29 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
         assert all(tool["type"] == "function" for tool in body["tools"])
         tool = next(
             item for item in body["tools"]
-            if (item["function"] if client_type is GlmModelClient else item)["name"]
+            if item["function"]["name"]
             == "web_search"
         )
-        function = tool["function"] if client_type is GlmModelClient else tool
+        function = tool["function"]
         assert function["name"] == "web_search"
         assert function["parameters"]["required"] == ["query"]
         if len(bodies) == 2:
-            if client_type is GlmModelClient:
-                assert body["messages"][-2]["reasoning_content"] == "需要先查官方资料"
-                result = json.loads(body["messages"][-1]["content"])
-            else:
-                assert body["input"][-2]["type"] == "function_call"
-                result = json.loads(body["input"][-1]["output"])
+            assert body["messages"][-2]["reasoning_content"] == "需要先查官方资料"
+            result = json.loads(body["messages"][-1]["content"])
             assert result["success"]
             assert result["data"]["results"][0]["url"] == "https://docs.bigmodel.cn/"
-        if client_type is GlmModelClient:
-            assert body["stream"] is True
-            chunk = model_response(client_type, "文档总结", call=len(bodies) == 1)
-            chunk["object"] = "chat.completion.chunk"
-            choice = chunk["choices"][0]
-            choice["delta"] = choice.pop("message")
-            for index, call in enumerate(choice["delta"].get("tool_calls", [])):
-                call["index"] = index
-            choice["finish_reason"] = "tool_calls" if len(bodies) == 1 else "stop"
-            return httpx.Response(
-                200,
-                headers={"content-type": "text/event-stream"},
-                content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
-            )
-        assert not body.get("stream")
+        assert body["stream"] is True
+        chunk = model_response("文档总结", call=len(bodies) == 1)
+        chunk["object"] = "chat.completion.chunk"
+        choice = chunk["choices"][0]
+        choice["delta"] = choice.pop("message")
+        for index, call in enumerate(choice["delta"].get("tool_calls", [])):
+            call["index"] = index
+        choice["finish_reason"] = "tool_calls" if len(bodies) == 1 else "stop"
         return httpx.Response(
-            200, json=model_response(client_type, "文档总结", call=len(bodies) == 1)
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
         )
 
     def search_handler(request):
@@ -163,7 +127,7 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
         return httpx.Response(200, json=SEARCH_RESULT)
 
     async def run():
-        client = await make_client(client_type, model_handler)
+        client = await make_client(model_handler)
         try:
             async with httpx.AsyncClient(
                 base_url="https://search.test/",
@@ -195,8 +159,7 @@ def test_agent_search_round_trip_uses_registry_and_records_results(client_type):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("client_type", [ArkModelClient, GlmModelClient])
-def test_planner_search_step_then_model_step(client_type):
+def test_planner_search_step_then_model_step():
     plan = {
         "goal": "搜索并总结",
         "steps": [
@@ -227,25 +190,23 @@ def test_planner_search_step_then_model_step(client_type):
         body = json.loads(request.content)
         bodies.append(body)
         assert "tools" not in body and "tool_choice" not in body
-        messages = body["messages"] if client_type is GlmModelClient else body["input"]
+        messages = body["messages"]
         if len(bodies) == 1:
             assert "web_search" in messages[0]["content"]
-            return httpx.Response(
-                200, json=model_response(client_type, json.dumps(plan))
-            )
+            return stream_response(model_response(json.dumps(plan)))
         payload = json.loads(messages[-1]["content"])
         assert (
             payload["dependency_results"]["step_1"]["results"][0]["url"]
             == "https://docs.bigmodel.cn/"
         )
-        return httpx.Response(200, json=model_response(client_type, "带来源的总结"))
+        return stream_response(model_response("带来源的总结"))
 
     def search_handler(request):
         searches.append(request)
         return httpx.Response(200, json=SEARCH_RESULT)
 
     async def run():
-        client = await make_client(client_type, model_handler)
+        client = await make_client(model_handler)
         try:
             async with httpx.AsyncClient(
                 base_url="https://search.test/",

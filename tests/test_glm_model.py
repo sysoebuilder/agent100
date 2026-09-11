@@ -19,18 +19,22 @@ TOOLS = [ToolSpec("weather", "查询天气", RiskLevel.LOW, {"type": "object"})]
 
 
 def completion(content=None, tool_calls=None, reasoning=None):
-    message = {"role": "assistant", "content": content}
+    delta = {"role": "assistant", "content": content}
     if tool_calls is not None:
-        message["tool_calls"] = tool_calls
+        delta["tool_calls"] = [{**call, "index": i} for i, call in enumerate(tool_calls)]
     if reasoning is not None:
-        message["reasoning_content"] = reasoning
-    return {
+        delta["reasoning_content"] = reasoning
+    chunk = {
         "id": "completion-1",
-        "object": "chat.completion",
+        "object": "chat.completion.chunk",
         "created": 0,
         "model": "glm-4.7",
-        "choices": [{"index": 0, "finish_reason": "stop", "message": message}],
+        "choices": [{
+            "index": 0, "finish_reason": "tool_calls" if tool_calls else "stop",
+            "delta": delta,
+        }],
     }
+    return f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n"
 
 
 async def client_with_transport(handler, **kwargs):
@@ -68,7 +72,8 @@ def test_tool_round_trip_preserves_reasoning_parallel_calls_and_raw_arguments():
         bodies.append(json.loads(request.content))
         return httpx.Response(
             200,
-            json=(
+            headers={"content-type": "text/event-stream"},
+            content=(
                 completion("查询中", calls, "原始思考\n")
                 if len(bodies) == 1
                 else completion(" 晴天 ")
@@ -78,7 +83,7 @@ def test_tool_round_trip_preserves_reasoning_parallel_calls_and_raw_arguments():
     async def run():
         client = await client_with_transport(handler)
         try:
-            first = await client.create_response(REQUEST, TOOLS)
+            first = await client.create_response_stream(REQUEST, TOOLS)
             assert len(first.tool_calls) == 2
             assert first.tool_calls[0].arguments == {"city": "北京"}
             # 经过项目的数据模型序列化之后也必须能恢复续调上下文。
@@ -95,7 +100,7 @@ def test_tool_round_trip_preserves_reasoning_parallel_calls_and_raw_arguments():
                     for call in restored.tool_calls
                 ],
             ]
-            second = await client.create_response(REQUEST, TOOLS, history)
+            second = await client.create_response_stream(REQUEST, TOOLS, history)
             assert second.message.content == "晴天"
             assert second.tool_calls == []
         finally:
@@ -135,12 +140,12 @@ def test_plain_response_without_tools_and_thinking():
         body = json.loads(request.content)
         assert "tools" not in body and "tool_choice" not in body
         assert body["thinking"] == {"type": "disabled"}
-        return httpx.Response(200, json=completion(" 你好 ", reasoning="不作为答案"))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=completion(" 你好 ", reasoning="不作为答案"))
 
     async def run():
         client = await client_with_transport(handler, thinking="disabled")
         try:
-            response = await client.create_response(REQUEST, [])
+            response = await client.create_response_stream(REQUEST, [])
             assert response.message.content == "你好"
         finally:
             await client.close()
@@ -151,55 +156,22 @@ def test_plain_response_without_tools_and_thinking():
 @pytest.mark.parametrize(
     "arguments,error", [("[]", TypeError), ("invalid", ValueError)]
 )
-@pytest.mark.parametrize("streaming", [False, True])
-def test_invalid_tool_arguments(arguments, error, streaming):
+def test_invalid_tool_arguments(arguments, error):
     def handler(request):
-        if streaming:
-            return httpx.Response(
-                200,
-                headers={"content-type": "text/event-stream"},
-                stream=ChunkStream(
-                    [
-                        stream_chunk(
-                            {
-                                "tool_calls": [
-                                    {
-                                        "index": 0,
-                                        "id": "call-1",
-                                        "type": "function",
-                                        "function": {
-                                            "name": "weather",
-                                            "arguments": arguments,
-                                        },
-                                    }
-                                ]
-                            },
-                            "tool_calls",
-                        )
-                    ]
-                ),
-            )
         return httpx.Response(
-            200,
-            json=completion(
-                tool_calls=[
-                    {
-                        "id": "call-1",
-                        "type": "function",
-                        "function": {"name": "weather", "arguments": arguments},
-                    }
-                ]
-            ),
+            200, headers={"content-type": "text/event-stream"},
+            content=completion(tool_calls=[{
+                "id": "call-1", "type": "function",
+                "function": {"name": "weather", "arguments": arguments},
+            }]),
         )
+
 
     async def run():
         client = await client_with_transport(handler)
         try:
             with pytest.raises(error):
-                if streaming:
-                    await client.create_response_stream(REQUEST, TOOLS)
-                else:
-                    await client.create_response(REQUEST, TOOLS)
+                await client.create_response_stream(REQUEST, TOOLS)
         finally:
             await client.close()
 
@@ -226,11 +198,11 @@ def test_task_plan_uses_json_mode_and_validates_schema():
     def handler(request):
         body = json.loads(request.content)
         assert body["response_format"] == {"type": "json_object"}
-        assert not body.get("stream")
+        assert body["stream"] is True
         assert "tools" not in body and "tool_choice" not in body
         assert "weather" in body["messages"][0]["content"]
         assert "JSON Schema" in body["messages"][0]["content"]
-        return httpx.Response(200, json=completion(next(contents)))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=completion(next(contents)))
 
     async def run():
         client = await client_with_transport(handler)
@@ -285,7 +257,7 @@ def test_compact_context_rejects_empty_summary():
         body = json.loads(request.content)
         assert body["messages"][0]["role"] == "system"
         assert body["messages"][1] == {"role": "user", "content": "查询天气"}
-        return httpx.Response(200, json=completion(next(contents)))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=completion(next(contents)))
 
     async def run():
         client = await client_with_transport(handler)

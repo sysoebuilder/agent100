@@ -1,7 +1,7 @@
 # 统一搜索工具
 
 `web_search` 与 `current_time` 一样，通过 `ToolRegistry` 注册，由 `ToolExecutor` 执行。
-ArkModelClient 和 GlmModelClient 都把它转换为普通函数工具，不再自动追加 `type="web_search"` 的服务端工具。
+GlmModelClient 把它转换为普通函数工具，不再自动追加 `type="web_search"` 的服务端工具。
 
 调用流程：模型返回 `ToolCall` → 执行器校验并调用搜索 handler → 生成 `ToolResult` → 模型使用搜索结果回答。
 
@@ -29,7 +29,6 @@ registry = ToolRegistry(tools=build_builtin_tools(search_client))
 
 `search_http_client` 由应用注入，配置标准 API 地址和 Bearer 认证。工具不自行读取环境变量。
 搜索引擎默认 `search_pro`，可在构造 WebSearchClient 时指定 `search_engine="search_std"`；模型不能修改密钥、API 地址或搜索引擎。
-切换模型为 Ark 时也可复用这个搜索工具，但搜索连接仍使用智谱 API Key，模型连接使用 Ark API Key。
 
 独立搜索请求使用 `POST https://open.bigmodel.cn/api/paas/v4/web_search`，将 `query` 映射为 `search_query`，设置 `search_intent=false`、`content_size="medium"`。
 这是独立的搜索服务，收费规则见[官方联网搜索说明](https://docs.bigmodel.cn/cn/guide/tools/web-search)，不根据所选对话模型判断搜索费用。
