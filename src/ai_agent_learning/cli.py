@@ -1,7 +1,7 @@
 import argparse
 import asyncio
 
-from ai_agent_learning.main import run_chat, run_taskplan
+from ai_agent_learning.main import run_chat, run_config, run_taskplan
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -19,6 +19,11 @@ def create_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(
         dest="command",
         required=True,
+    )
+
+    commands.add_parser(
+        "config",
+        help="选择提供商、输入模型名称并更新当前配置",
     )
 
     commands.add_parser(
@@ -44,7 +49,10 @@ def main() -> None:
     args = create_parser().parse_args()
 
     try:
-        if args.command == "chat":
+        if args.command == "config":
+            run_config()
+
+        elif args.command == "chat":
             asyncio.run(run_chat())
 
         elif args.command == "taskplan":

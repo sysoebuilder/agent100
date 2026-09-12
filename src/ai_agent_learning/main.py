@@ -1,11 +1,8 @@
 import json
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from getpass import getpass
-from pathlib import Path
 
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 
 from ai_agent_learning.agent.context import ContextManager
 from ai_agent_learning.agent.loop import AgentLoop
@@ -13,8 +10,13 @@ from ai_agent_learning.agent.policy import AgentLimits, AgentPolicy
 from ai_agent_learning.agent.state import AgentRunResult, StopReason
 from ai_agent_learning.context import save_context, select_context
 from ai_agent_learning.logging_config import configure_logging
-from ai_agent_learning.model import GlmModelClient
-from ai_agent_learning.paths import get_data_dir
+from ai_agent_learning.model import DeepSeekClient, GlmModelClient
+from ai_agent_learning.model_config import (
+    load_active_model,
+    load_model_choices,
+    save_active_model,
+    source_config_path,
+)
 from ai_agent_learning.planning.executor import PlanExecutor
 from ai_agent_learning.planning.planner import Planner
 from ai_agent_learning.planning.renderer import (
@@ -34,9 +36,6 @@ from ai_agent_learning.tools.executor import ToolExecutor
 from ai_agent_learning.tools.registry import ToolRegistry
 from ai_agent_learning.ui.terminal import TerminalUI
 
-API_KEY_ENV = "ZAI_API_KEY"
-REASONING_MODEL_ENV = "GLM_REASONING_MODEL"
-DEFAULT_MODEL = "GLM-5.3-flash"
 CONTEXT_LIMIT = 128_000
 KEEP_RECENT = 6
 
@@ -90,107 +89,42 @@ def agent_run_result_to_messages(
     return messages
 
 
-def ask_required(
-    prompt: str,
-    *,
-    secret: bool = False,
-) -> str:
-    reader = getpass if secret else input
-
-    while True:
-        try:
-            value = reader(prompt).strip()
-        except EOFError as error:
-            raise SystemExit("\n无法读取输入，配置已取消。") from error
-
-        if value:
-            return value
-
-        print("输入不能为空，请重新输入。")
-
-
-def save_env_value(
-    env_file: Path,
-    name: str,
-    value: str,
-) -> None:
+def run_config() -> None:
+    ui = TerminalUI()
     try:
-        env_file.touch(exist_ok=True)
-
-        set_key(
-            str(env_file),
-            name,
-            value,
-            quote_mode="always",
-        )
-    except OSError as error:
-        raise SystemExit(f"无法保存配置文件：{env_file}") from error
-
-    # 让本次运行立即使用刚输入的配置。
-    os.environ[name] = value
-
-
-def load_or_create_config() -> tuple[str, str]:
-    env_file = get_data_dir() / ".env"
-
-    # 系统环境变量优先，data/.env 只补充缺失配置。
-    load_dotenv(
-        env_file,
-        override=False,
-    )
-
-    api_key = os.getenv(API_KEY_ENV, "").strip()
-    reasoning_model = (
-        os.getenv(
-            REASONING_MODEL_ENV,
-            "",
-        ).strip()
-        or DEFAULT_MODEL
-    )
-
-    if api_key and reasoning_model:
-        return api_key, reasoning_model
-
-    print("\n首次使用 llm-cli，需要完成模型配置。")
-    print(f"配置将保存到：{env_file}")
-    print("请勿将该文件提交到 Git。\n")
-
-    if not api_key:
-        api_key = ask_required(
-            "请输入 GLM API Key（输入内容不会显示）：",
-            secret=True,
-        )
-        save_env_value(
-            env_file,
-            API_KEY_ENV,
-            api_key,
-        )
-
-    save_env_value(env_file, REASONING_MODEL_ENV, reasoning_model)
-
-    print("配置保存成功。\n")
-
-    return api_key, reasoning_model
+        choices = load_model_choices()
+        ui.show_notice(f"候选配置来源：{source_config_path()}")
+        selected = ui.select_model(choices)
+        if selected is None:
+            return
+        path = save_active_model(selected)
+    except (OSError, UnicodeError, ValueError):
+        ui.show_error("无法读取或保存配置，请检查项目 .env 和数据目录权限。")
+        return
+    ui.show_notice(f"当前模型：{selected.provider} / {selected.model}")
+    ui.show_notice(f"已更新：{path}")
 
 
 @asynccontextmanager
-async def create_runtime(
-    api_key: str,
-) -> AsyncIterator[tuple[GlmModelClient, ToolRegistry]]:
-    """管理模型连接，包括初始化失败和用户取消时的清理。"""
-    client = GlmModelClient(api_key=api_key)
+async def create_runtime() -> AsyncIterator[tuple[GlmModelClient | DeepSeekClient, ToolRegistry, str]]:
+    """只从当前配置文件选择模型，并管理客户端连接的生命周期。"""
+    config = load_active_model()
+    client_types = {"glm": GlmModelClient, "deepseek": DeepSeekClient}
+    client = client_types[config.provider](
+        api_key=config.api_key, base_url=config.base_url,
+    )
     try:
+        # .env 为搜索、邮件等工具提供凭据；模型的四个字段始终只取自 config。
+        load_dotenv(source_config_path(), override=False)
         registry = ToolRegistry(tools=build_builtin_tools())
-        yield client, registry
+        yield client, registry, config.model
     finally:
         await client.close()
 
 
 async def run_chat() -> None:
     configure_logging()
-    api_key, reasoning_id = load_or_create_config()
-
-    async with create_runtime(api_key) as (client, tool_registry):
+    async with create_runtime() as (client, tool_registry, reasoning_id):
         ui = TerminalUI()
         tool_executor = ToolExecutor(
             registry=tool_registry,
@@ -298,9 +232,7 @@ async def run_chat() -> None:
 
 async def run_taskplan(goal: str | None = None) -> None:
     configure_logging()
-    api_key, reasoning_id = load_or_create_config()
-
-    async with create_runtime(api_key) as (client, tool_registry):
+    async with create_runtime() as (client, tool_registry, reasoning_id):
         context_manager = ContextManager(
             client=client,
             tokenizer_model=reasoning_id,

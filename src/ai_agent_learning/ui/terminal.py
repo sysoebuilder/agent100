@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
@@ -7,6 +9,7 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
+from ai_agent_learning.model_config import ModelConfig, source_config_path
 from ai_agent_learning.schema import Session
 from ai_agent_learning.tools.contracts import ToolCall, ToolSpec
 
@@ -40,6 +43,44 @@ class TerminalUI:
         self.console.print()
         self.console.rule(Text("你", style="bold cyan"), align="left", style="dim")
         return input("› ").strip()
+
+    def select_model(self, choices: list[ModelConfig]) -> ModelConfig | None:
+        table = Table(title="选择模型提供商", border_style="cyan")
+        table.add_column("编号", justify="right")
+        table.add_column("提供商")
+        table.add_column("配置状态")
+        valid: dict[str, ModelConfig] = {}
+        for index, choice in enumerate(choices, 1):
+            try:
+                choice.validate()
+                status = "可选择"
+                valid[str(index)] = choice
+            except ValueError as error:
+                key_name = "ZAI_API_KEY" if choice.provider == "glm" else "DEEPSEEK_API_KEY"
+                status = str(error).replace("MODEL_API_KEY", key_name).replace(
+                    "MODEL_BASE_URL", f"{choice.provider.upper()}_BASE_URL",
+                )
+            table.add_row(str(index), choice.provider, status)
+        self.console.print(table)
+        if not valid:
+            self.show_error(f"没有可用配置，请补全 {source_config_path()} 中缺失的字段。")
+            return None
+        while True:
+            try:
+                selected = input("输入提供商编号（q 取消）：").strip()
+            except EOFError:
+                return None
+            if selected.lower() in {"q", "quit", "exit"}:
+                return None
+            if selected in valid:
+                try:
+                    default = valid[selected].model
+                    prompt = f"输入模型名称（回车使用 {default}）：" if default else "输入模型名称："
+                    model = input(prompt) or default
+                except EOFError:
+                    return None
+                return replace(valid[selected], model=model)
+            self.show_error("请选择配置完整的提供商编号，或输入 q 取消。")
 
     def confirm_tool_call(self, spec: ToolSpec, call: ToolCall, reason: str) -> bool:
         # 同步确认在事件循环中依次执行，避免并发工具同时读取终端输入。

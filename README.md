@@ -21,7 +21,7 @@ Version **0.3.0** · Python **3.11+** · Command **`agent100`**
 
 | 能力 | 实现内容 |
 | --- | --- |
-| 多轮对话 | GLM 流式输出、终端 Markdown 展示、本地会话保存与加载 |
+| 多轮对话 | GLM / DeepSeek 流式输出、终端 Markdown 展示、本地会话保存与加载 |
 | Agent 循环 | 模型选择工具、执行工具、回传结果并继续推理；限制最大模型调用轮数 |
 | 工具系统 | 统一描述、注册表、调用与结果结构；JSON Schema 参数校验 |
 | 内置工具 | 当前时间、网络搜索、QQ SMTP 邮件发送、Windows PowerShell 命令执行 |
@@ -47,18 +47,24 @@ Copy-Item .env.example .env
 
 ```dotenv
 ZAI_API_KEY=your_api_key
-GLM_REASONING_MODEL=GLM-5.3-flash
+GLM_MODEL=GLM-5.3-flash
+GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4/
+
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_BASE_URL=https://api.deepseek.com
 ```
 
-当前 CLI 使用智谱 GLM；可按账号可用模型调整名称，所选模型和服务需支持项目使用的工具调用、结构化输出和 Token 计数接口。缺少 API Key 时，CLI 也会提示输入并保存到本地 `data/.env`。
+运行 `agent100 config` 选择 GLM 或 DeepSeek，并输入模型名称（回车使用 `.env` 中的名称，不校验模型名称）。命令把选定模型和对应 Key、Base URL 写入 `data/active-model.env`，不会修改源 `.env`。之后 `chat` 和 `taskplan` 只使用当前配置；配置缺失时提示执行 `agent100 config` 并退出。修改源 `.env` 后需再次运行 `config` 才会同步。详见 [模型配置](docs/model-configuration.md)。
 
 ```powershell
 .\.venv\Scripts\agent100.exe --version
+.\.venv\Scripts\agent100.exe config
 .\.venv\Scripts\agent100.exe chat
 .\.venv\Scripts\agent100.exe taskplan "搜索 Python 日志最佳实践并整理学习提纲"
 ```
 
-邮件工具另需配置 `QQ_SMTP_USERNAME` 和 `QQ_SMTP_AUTH_CODE`，后者是 SMTP 授权码，不是邮箱登录密码。模型和搜索调用使用你自己的服务账号，可能产生费用。
+网络搜索仍需独立的 `ZAI_API_KEY`。邮件工具另需配置 `QQ_SMTP_USERNAME` 和 `QQ_SMTP_AUTH_CODE`，后者是 SMTP 授权码，不是邮箱登录密码。模型和搜索调用使用你自己的服务账号，可能产生费用。
 
 会话、日志和计划默认保存在本地 `data/`；可用 `LLM_CLI_DATA_DIR` 指定其他目录。不要提交真实 `.env` 或个人会话数据。
 
@@ -77,7 +83,7 @@ GLM_REASONING_MODEL=GLM-5.3-flash
 | `src/ai_agent_learning/agent/` | Agent 循环、状态、停止策略与上下文管理 |
 | `src/ai_agent_learning/tools/` | 工具协议、注册、执行与恢复策略 |
 | `src/ai_agent_learning/planning/` | 计划生成、校验、执行与持久化 |
-| `src/ai_agent_learning/model.py` | GLM 模型 API 适配与流式生成 |
+| `src/ai_agent_learning/model.py` | GLM、DeepSeek 模型 API 适配与流式生成 |
 | `src/ai_agent_learning/ui/` | 终端展示与工具确认 |
 | `tests/` | 模型适配、Agent、工具、运行时与终端相关测试 |
 | `docs/` | 实现说明与设计细节 |
@@ -109,7 +115,7 @@ If you are hiring Agent developers, please contact me at [1774364027w@gmail.com]
 
 | Capability | Implementation |
 | --- | --- |
-| Multi-turn chat | GLM streaming, terminal Markdown rendering, local session persistence and loading |
+| Multi-turn chat | GLM / DeepSeek streaming, terminal Markdown rendering, local session persistence and loading |
 | Agent loop | Model-selected tools, execution, result feedback, and a model-call limit |
 | Tool system | Shared specifications, registry, call/result contracts, and JSON Schema validation |
 | Built-in tools | Current time, web search, QQ SMTP email, and Windows PowerShell commands |
@@ -131,15 +137,16 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-Set `ZAI_API_KEY` in `.env`. The current CLI uses GLM, with `GLM_REASONING_MODEL=GLM-5.3-flash` as the default. You can choose an available model, provided the model and service support the tool calling, structured output, and token counting interfaces used by the project. If the key is missing, the CLI can prompt for it and save it locally in `data/.env`.
+Manually configure the provider credentials, model names, and base URLs in project `.env` using `.env.example`. Run `agent100 config` to choose GLM or DeepSeek and enter a model name (Enter keeps the name from `.env`; names are not validated). The command copies the selection to `data/active-model.env` without editing the source `.env`. Chat and task planning only use this snapshot; missing configuration directs you to `agent100 config`. Source changes take effect only after running `config` again. See [model configuration](docs/model-configuration.md).
 
 ```powershell
 .\.venv\Scripts\agent100.exe --version
+.\.venv\Scripts\agent100.exe config
 .\.venv\Scripts\agent100.exe chat
 .\.venv\Scripts\agent100.exe taskplan "Search for Python logging practices and prepare a study outline"
 ```
 
-Email requires `QQ_SMTP_USERNAME` and `QQ_SMTP_AUTH_CODE` (an SMTP authorization code, not your mailbox password). Model and search requests use your own service account and may incur charges.
+Web search still requires `ZAI_API_KEY`. Email requires `QQ_SMTP_USERNAME` and `QQ_SMTP_AUTH_CODE` (an SMTP authorization code, not your mailbox password). Model and search requests use your own service account and may incur charges.
 
 Sessions, logs, and plans are stored in `data/` by default. Set `LLM_CLI_DATA_DIR` to override the location. Keep real `.env` files and personal session data out of version control. The current terminal interface is primarily in Chinese.
 
@@ -153,7 +160,7 @@ Sessions, logs, and plans are stored in `data/` by default. Set `LLM_CLI_DATA_DI
 
 ### Code map and development
 
-`agent/` contains the loop, state, policies, and context manager; `tools/` contains contracts and execution; `planning/` handles plans and step execution; `ui/` handles terminal interaction. These modules live under `src/ai_agent_learning/`. `model.py` contains the GLM adapter and streaming generation used by the CLI.
+`agent/` contains the loop, state, policies, and context manager; `tools/` contains contracts and execution; `planning/` handles plans and step execution; `ui/` handles terminal interaction. These modules live under `src/ai_agent_learning/`. `model.py` contains the GLM and DeepSeek clients used by the CLI.
 
 `tests/` covers model adapters, agent behavior, tools, runtime, and terminal behavior. `docs/` contains implementation notes, primarily in Chinese. `days/` and `projects/` track learning exercises and milestones; some directories are placeholders rather than implemented applications.
 

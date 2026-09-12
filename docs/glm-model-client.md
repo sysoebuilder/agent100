@@ -35,7 +35,7 @@ asyncio.run(main())
 ```
 
 AgentLoop、ContextManager、ConversationService、Planner 和 PlanExecutor 均接受该客户端。
-`run_chat` 和 `run_taskplan` 均使用 GlmModelClient，读取 `ZAI_API_KEY` 和 `GLM_REASONING_MODEL`，默认模型为 `GLM-5.3-flash`；缺少 API Key 时会提示输入并保存到 `data/.env`。上下文预算设为 128,000 tokens，规划、执行和分词均使用所配置的 GLM 模型。
+`agent100 config` 从项目 `.env` 读取候选连接，选择提供商并输入模型名称后写入 `data/active-model.env`。`run_chat` 和 `run_taskplan` 的 `create_runtime` 只根据当前配置选择 GlmModelClient 或 DeepSeekClient；配置缺失时提示运行 `agent100 config`。源 GLM 模型字段为 `GLM_MODEL`。上下文预算设为 128,000 tokens。详见 [模型配置](model-configuration.md)。
 
 - 工具定义：只转换传入的工具，`tools=[]` 表示不提供工具；联网搜索通过注册的普通 `web_search` 工具执行，见 [搜索工具说明](web-search.md)。
 - `create_response_stream`：GLM 专用流式接口，使用 `stream=True`，通过可选同步回调 `on_text_delta(text)` 逐块通知正文，最终返回完整的 `ModelResponse`。工具参数按 index 拼接后再解析，思考内容仅保留用于工具续调，不发送给正文回调。截断、缺少正常结束标记或无效工具参数会抛出异常；取消和异常时关闭响应流，不自动重放已经输出的内容。依据：[官方流式消息文档](https://docs.bigmodel.cn/cn/guide/capabilities/streaming)。

@@ -131,13 +131,12 @@ def test_chat_prints_deltas_before_run_returns(monkeypatch, capsys, error):
             )
 
     @asynccontextmanager
-    async def runtime(api_key):
-        yield object(), object()
+    async def runtime():
+        yield object(), object(), "glm"
 
     inputs = iter(["你好", "exit"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(inputs))
     monkeypatch.setattr(main_module, "configure_logging", lambda: None)
-    monkeypatch.setattr(main_module, "load_or_create_config", lambda: ("test", "glm"))
     monkeypatch.setattr(main_module, "create_runtime", runtime)
     monkeypatch.setattr(main_module, "AgentLoop", FakeLoop)
     monkeypatch.setattr(main_module, "select_session", lambda **kwargs: session)

@@ -11,7 +11,7 @@ from ai_agent_learning.agent.state import (
     AgentState,
     AgentStep,
 )
-from ai_agent_learning.model import GlmModelClient
+from ai_agent_learning.model import DeepSeekClient, GlmModelClient
 from ai_agent_learning.schema import ModelRequest, ModelResponse
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 from ai_agent_learning.tools.executor import ToolExecutor
@@ -21,7 +21,7 @@ from ai_agent_learning.tools.registry import ToolRegistry
 class AgentLoop:
     def __init__(
         self,
-        model_client: GlmModelClient,
+        model_client: GlmModelClient | DeepSeekClient,
         registry: ToolRegistry,
         executor: ToolExecutor,
         policy: AgentPolicy,
