@@ -79,7 +79,7 @@ Web Search 功能基于 GLM 搜索引擎实现，必须配置 GLM API Key（环�
 | `src/ai_agent_learning/ui/` | 终端展示与工具确认 |
 | `tests/` | 模型适配、Agent、工具、运行时与终端相关测试 |
 | `docs/` | 实现说明与设计细节 |
-| `days/`、`projects/` | 学习练习与里程碑目录；部分目录仍为占位说明 |
+| `days/` | 学习练习与里程碑目录；部分目录仍为占位说明 |
 
 实现说明：[GLM 接入](docs/glm-model-client.md) · [搜索工具](docs/web-search.md) · [上下文估算](docs/context-token-estimation.md) · [终端界面](docs/terminal-ui.md)
 
@@ -146,7 +146,7 @@ Sessions, logs, and plans are stored in `data/` by default. Set `LLM_CLI_DATA_DI
 
 `agent/` contains the loop, state, policies, and context manager; `tools/` contains contracts and execution; `planning/` handles plans and step execution; `ui/` handles terminal interaction. These modules live under `src/ai_agent_learning/`. `model.py` contains the GLM and DeepSeek clients used by the CLI.
 
-`tests/` covers model adapters, agent behavior, tools, runtime, and terminal behavior. `docs/` contains implementation notes, primarily in Chinese. `days/` and `projects/` track learning exercises and milestones; some directories are placeholders rather than implemented applications.
+`tests/` covers model adapters, agent behavior, tools, runtime, and terminal behavior. `docs/` contains implementation notes, primarily in Chinese. `days/` tracks learning exercises and milestones; some directories are placeholders rather than implemented applications.
 
 Implementation notes: [GLM integration](docs/glm-model-client.md) · [Web search](docs/web-search.md) · [Context estimates](docs/context-token-estimation.md) · [Terminal UI](docs/terminal-ui.md)
 
