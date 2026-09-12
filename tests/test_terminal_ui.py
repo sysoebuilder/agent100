@@ -151,3 +151,21 @@ def test_redirected_output_streams_text_without_reasoning_or_control_codes():
     ui.finish_response()
     ui.close_turn()
     assert output.getvalue() == "助手: 第一块第二块\n"
+
+
+def test_first_setup_collects_provider_key_and_model(monkeypatch, terminal):
+    ui, output = terminal
+    answers = iter(["2", "custom-deepseek"])
+    monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+    monkeypatch.setattr(
+        "ai_agent_learning.ui.terminal.getpass", lambda prompt: "secret-key",
+    )
+
+    config = ui.setup_first_model()
+
+    assert config is not None
+    assert config.provider == "deepseek"
+    assert config.api_key == "secret-key"
+    assert config.model == "custom-deepseek"
+    assert config.base_url == "https://api.deepseek.com"
+    assert "首次启动" in output.getvalue()

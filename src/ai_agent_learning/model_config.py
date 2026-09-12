@@ -9,6 +9,11 @@ from dotenv import dotenv_values, set_key
 
 from ai_agent_learning.paths import get_data_dir
 
+PROVIDER_DEFAULTS = {
+    "glm": ("GLM-5.3-flash", "https://open.bigmodel.cn/api/paas/v4/"),
+    "deepseek": ("deepseek-v4-flash", "https://api.deepseek.com"),
+}
+
 
 @dataclass(frozen=True)
 class ModelConfig:
@@ -46,6 +51,32 @@ def source_config_path() -> Path:
 
 def active_config_path() -> Path:
     return get_data_dir() / "active-model.env"
+
+
+def create_model_config(provider: str, api_key: str, model: str = "") -> ModelConfig:
+    try:
+        default_model, base_url = PROVIDER_DEFAULTS[provider]
+    except KeyError as error:
+        raise ValueError("模型提供商只支持 glm 或 deepseek") from error
+    return ModelConfig(provider, model.strip() or default_model, api_key.strip(), base_url)
+
+
+def save_source_model(config: ModelConfig) -> Path:
+    """保存首次配置；连接地址始终使用程序内置的提供商默认值。"""
+    config.validate()
+    target = source_config_path()
+    names = {
+        "glm": ("ZAI_API_KEY", "GLM_MODEL", "GLM_BASE_URL"),
+        "deepseek": ("DEEPSEEK_API_KEY", "DEEPSEEK_MODEL", "DEEPSEEK_BASE_URL"),
+    }
+    key_name, model_name, url_name = names[config.provider]
+    for name, value in (
+        (key_name, config.api_key),
+        (model_name, config.model),
+        (url_name, config.base_url),
+    ):
+        set_key(str(target), name, value, quote_mode="always")
+    return target
 
 
 def load_model_choices() -> list[ModelConfig]:

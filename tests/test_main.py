@@ -13,6 +13,7 @@ from ai_agent_learning.agent.state import (
     StopReason,
 )
 from ai_agent_learning.main import agent_run_result_to_messages
+from ai_agent_learning.model_config import create_model_config
 from ai_agent_learning.schema import Context, Message, ModelResponse, Session
 from ai_agent_learning.tools.contracts import ToolCall, ToolResult
 
@@ -87,6 +88,34 @@ def test_agent_run_result_to_messages_preserves_tool_events() -> None:
     ]
     assert messages[-1] == final_message
     assert messages.count(final_message) == 1
+
+
+def test_run_config_bootstraps_when_source_is_missing(monkeypatch, tmp_path) -> None:
+    selected = create_model_config("glm", "secret-key")
+    saved_source = []
+    saved_active = []
+
+    class FakeUI:
+        def show_notice(self, message):
+            pass
+
+        def show_error(self, message):
+            pytest.fail(message)
+
+        def setup_first_model(self):
+            return selected
+
+    monkeypatch.setattr(main_module, "TerminalUI", FakeUI)
+    monkeypatch.setattr(main_module, "source_config_path", lambda: tmp_path / ".env")
+    monkeypatch.setattr(main_module, "save_source_model", saved_source.append)
+    monkeypatch.setattr(
+        main_module, "save_active_model", lambda config: saved_active.append(config) or tmp_path / "active-model.env",
+    )
+
+    main_module.run_config()
+
+    assert saved_source == [selected]
+    assert saved_active == [selected]
 
 
 @pytest.mark.parametrize("error", [None, RuntimeError, asyncio.CancelledError])

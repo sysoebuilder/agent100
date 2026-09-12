@@ -40,22 +40,9 @@ git clone https://github.com/sysoebuilder/agent100.git
 cd agent100
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
-Copy-Item .env.example .env
 ```
 
-编辑 `.env`，填写自己的配置：
-
-```dotenv
-ZAI_API_KEY=your_api_key
-GLM_MODEL=GLM-5.3-flash
-GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4/
-
-DEEPSEEK_API_KEY=your_deepseek_api_key
-DEEPSEEK_MODEL=deepseek-v4-flash
-DEEPSEEK_BASE_URL=https://api.deepseek.com
-```
-
-运行 `agent100 config` 选择 GLM 或 DeepSeek，并输入模型名称（回车使用 `.env` 中的名称，不校验模型名称）。命令把选定模型和对应 Key、Base URL 写入 `data/active-model.env`，不会修改源 `.env`。之后 `chat` 和 `taskplan` 只使用当前配置；配置缺失时提示执行 `agent100 config` 并退出。修改源 `.env` 后需再次运行 `config` 才会同步。详见 [模型配置](docs/model-configuration.md)。
+首次运行 `agent100 config` 时，程序会自动检测配置：选择 GLM 或 DeepSeek，隐藏输入 API Key，再输入模型名称（回车使用默认名称）。服务地址使用内置默认值，无需填写。程序会创建 `data/.env` 并把当前选择写入 `data/active-model.env`。之后再次运行 `config` 可从已配置的提供商中切换模型。详见 [模型配置](docs/model-configuration.md)。
 
 ```powershell
 .\.venv\Scripts\agent100.exe --version
@@ -125,10 +112,9 @@ git clone https://github.com/sysoebuilder/agent100.git
 cd agent100
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
-Copy-Item .env.example .env
 ```
 
-Manually configure the provider credentials, model names, and base URLs in project `.env` using `.env.example`. Run `agent100 config` to choose GLM or DeepSeek and enter a model name (Enter keeps the name from `.env`; names are not validated). The command copies the selection to `data/active-model.env` without editing the source `.env`. Chat and task planning only use this snapshot; missing configuration directs you to `agent100 config`. Source changes take effect only after running `config` again. See [model configuration](docs/model-configuration.md).
+On the first `agent100 config` run, the program detects that configuration is missing, asks you to select GLM or DeepSeek, securely enter an API key, and enter a model name (Enter uses the default). Provider URLs are built in and are not requested. It creates `data/.env` and writes the active selection to `data/active-model.env`. Later `config` runs can switch among configured providers. See [model configuration](docs/model-configuration.md).
 
 ```powershell
 .\.venv\Scripts\agent100.exe --version

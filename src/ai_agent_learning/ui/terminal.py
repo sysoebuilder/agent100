@@ -1,4 +1,5 @@
 from dataclasses import replace
+from getpass import getpass
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -9,7 +10,12 @@ from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
 
-from ai_agent_learning.model_config import ModelConfig, source_config_path
+from ai_agent_learning.model_config import (
+    PROVIDER_DEFAULTS,
+    ModelConfig,
+    create_model_config,
+    source_config_path,
+)
 from ai_agent_learning.schema import Session
 from ai_agent_learning.tools.contracts import ToolCall, ToolSpec
 
@@ -81,6 +87,34 @@ class TerminalUI:
                     return None
                 return replace(valid[selected], model=model)
             self.show_error("请选择配置完整的提供商编号，或输入 q 取消。")
+
+    def setup_first_model(self) -> ModelConfig | None:
+        """首次启动时收集必要配置，连接地址使用内置默认值。"""
+        providers = {"1": "glm", "2": "deepseek"}
+        self.console.print("首次启动，请选择模型提供商：")
+        self.console.print("1. GLM")
+        self.console.print("2. DeepSeek")
+        while True:
+            try:
+                selected = input("输入提供商编号（q 取消）：").strip()
+            except EOFError:
+                return None
+            if selected.lower() in {"q", "quit", "exit"}:
+                return None
+            provider = providers.get(selected)
+            if provider is None:
+                self.show_error("请输入 1、2，或输入 q 取消。")
+                continue
+            try:
+                api_key = getpass("输入 API Key：").strip()
+                if not api_key:
+                    self.show_error("API Key 不能为空。")
+                    continue
+                default_model = PROVIDER_DEFAULTS[provider][0]
+                model = input(f"输入模型名称（回车使用 {default_model}）：").strip()
+            except EOFError:
+                return None
+            return create_model_config(provider, api_key, model)
 
     def confirm_tool_call(self, spec: ToolSpec, call: ToolCall, reason: str) -> bool:
         # 同步确认在事件循环中依次执行，避免并发工具同时读取终端输入。

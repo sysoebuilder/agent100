@@ -15,6 +15,7 @@ from ai_agent_learning.model_config import (
     load_active_model,
     load_model_choices,
     save_active_model,
+    save_source_model,
     source_config_path,
 )
 from ai_agent_learning.planning.executor import PlanExecutor
@@ -92,11 +93,26 @@ def agent_run_result_to_messages(
 def run_config() -> None:
     ui = TerminalUI()
     try:
-        choices = load_model_choices()
-        ui.show_notice(f"候选配置来源：{source_config_path()}")
-        selected = ui.select_model(choices)
+        source = source_config_path()
+        choices = load_model_choices() if source.is_file() else []
+        configured = False
+        for choice in choices:
+            try:
+                choice.validate()
+                configured = True
+                break
+            except ValueError:
+                continue
+        if configured:
+            ui.show_notice(f"候选配置来源：{source}")
+            selected = ui.select_model(choices)
+        else:
+            ui.show_notice("未检测到有效模型配置，开始首次配置。")
+            selected = ui.setup_first_model()
         if selected is None:
             return
+        if not configured:
+            save_source_model(selected)
         path = save_active_model(selected)
     except (OSError, UnicodeError, ValueError):
         ui.show_error("无法读取或保存配置，请检查项目 .env 和数据目录权限。")
