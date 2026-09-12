@@ -24,7 +24,7 @@ Version **0.3.0** · Python **3.11+** · Command **`agent100`**
 | 多轮对话 | GLM / DeepSeek 流式输出、终端 Markdown 展示、本地会话保存与加载 |
 | Agent 循环 | 模型选择工具、执行工具、回传结果并继续推理；限制最大模型调用轮数 |
 | 工具系统 | 统一描述、注册表、调用与结果结构；JSON Schema 参数校验 |
-| 内置工具 | 当前时间、网络搜索、QQ SMTP 邮件发送、Windows PowerShell 命令执行 |
+| 内置工具 | 当前时间、基于 GLM 搜索引擎的网络搜索、QQ SMTP 邮件发送、Windows PowerShell 命令执行 |
 | 执行控制 | 风险等级检查；聊天模式下，带副作用的工具执行前展示参数并请求确认 |
 | 失败恢复 | 区分临时失败、永久失败与结果未知，结合副作用和幂等能力决定是否重试 |
 | 上下文管理 | 增量估算 Token，达到阈值后请求精确计数，压缩旧消息并保留近期对话 |
@@ -64,17 +64,9 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 .\.venv\Scripts\agent100.exe taskplan "搜索 Python 日志最佳实践并整理学习提纲"
 ```
 
-网络搜索仍需独立的 `ZAI_API_KEY`。邮件工具另需配置 `QQ_SMTP_USERNAME` 和 `QQ_SMTP_AUTH_CODE`，后者是 SMTP 授权码，不是邮箱登录密码。模型和搜索调用使用你自己的服务账号，可能产生费用。
+Web Search 功能基于 GLM 搜索引擎实现，必须配置 GLM API Key（环境变量名为 `ZAI_API_KEY`）；即使当前对话模型选择 DeepSeek，该配置仍不可省略。邮件工具另需配置 `QQ_SMTP_USERNAME` 和 `QQ_SMTP_AUTH_CODE`，后者是 SMTP 授权码，不是邮箱登录密码。模型和搜索调用使用你自己的服务账号，可能产生费用。
 
 会话、日志和计划默认保存在本地 `data/`；可用 `LLM_CLI_DATA_DIR` 指定其他目录。不要提交真实 `.env` 或个人会话数据。
-
-### 面试时可以讨论的工程问题
-
-- **模型与执行器如何分工？** 模型提出调用，程序负责参数校验、执行控制和结果封装。
-- **为什么失败不能一律重试？** 查询失败与邮件发送结果未知需要不同的恢复策略。
-- **如何管理长对话？** 用本地增量估算减少计数请求，再按阈值压缩历史。
-- **如何检查执行过程？** 使用结构化工具结果、步骤状态和日志记录排查问题。
-- **当前边界在哪里？** 人工确认不等于操作系统沙箱；搜索结果中的恶意指令和错误信息仍需进一步测试与防护。
 
 ### 代码导航
 
@@ -118,7 +110,7 @@ If you are hiring Agent developers, please contact me at [1774364027w@gmail.com]
 | Multi-turn chat | GLM / DeepSeek streaming, terminal Markdown rendering, local session persistence and loading |
 | Agent loop | Model-selected tools, execution, result feedback, and a model-call limit |
 | Tool system | Shared specifications, registry, call/result contracts, and JSON Schema validation |
-| Built-in tools | Current time, web search, QQ SMTP email, and Windows PowerShell commands |
+| Built-in tools | Current time, GLM-powered web search, QQ SMTP email, and Windows PowerShell commands |
 | Execution controls | Risk checks; chat mode displays arguments and requests approval before side-effecting tools run |
 | Failure recovery | Transient, permanent, and unknown-outcome failures; retry decisions account for side effects and idempotency |
 | Context management | Incremental token estimates, threshold-triggered exact counting, and history compaction retaining recent messages |
@@ -146,17 +138,9 @@ Manually configure the provider credentials, model names, and base URLs in proje
 .\.venv\Scripts\agent100.exe taskplan "Search for Python logging practices and prepare a study outline"
 ```
 
-Web search still requires `ZAI_API_KEY`. Email requires `QQ_SMTP_USERNAME` and `QQ_SMTP_AUTH_CODE` (an SMTP authorization code, not your mailbox password). Model and search requests use your own service account and may incur charges.
+Web Search is powered by the GLM search engine and requires a GLM API key (`ZAI_API_KEY`); this configuration is mandatory even when DeepSeek is selected as the chat model. Email requires `QQ_SMTP_USERNAME` and `QQ_SMTP_AUTH_CODE` (an SMTP authorization code, not your mailbox password). Model and search requests use your own service account and may incur charges.
 
 Sessions, logs, and plans are stored in `data/` by default. Set `LLM_CLI_DATA_DIR` to override the location. Keep real `.env` files and personal session data out of version control. The current terminal interface is primarily in Chinese.
-
-### Engineering topics for an interview
-
-- **Separating model decisions from execution:** the model proposes calls; application code validates, controls, and executes them.
-- **Retrying safely:** failed lookups and email sends with unknown outcomes require different recovery policies.
-- **Managing long conversations:** incremental estimates reduce counting requests; threshold-based compaction limits context growth.
-- **Inspecting execution:** structured results, step states, and logs help diagnose failures.
-- **Understanding the limits:** human approval is not an OS sandbox; malicious instructions and false information in search results require further testing and defenses.
 
 ### Code map and development
 
