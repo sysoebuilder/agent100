@@ -63,7 +63,8 @@ def test_clients_create_structured_memories_without_streaming(client_type) -> No
         call = create.await_args.kwargs
         assert call["stream"] is False
         assert call["response_format"] == {"type": "json_object"}
-        assert call["extra_body"] == {"thinking": {"type": "disabled"}}
+        thinking = "enabled" if client_type is GlmModelClient else "disabled"
+        assert call["extra_body"] == {"thinking": {"type": thinking}}
         assert call["messages"][0]["role"] == "system"
         assert call["messages"][1] == {
             "role": "user",

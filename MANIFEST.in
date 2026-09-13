@@ -2,3 +2,4 @@ exclude .env
 prune data
 prune src/data
 global-exclude *.jsonl
+recursive-include docs *.md

@@ -3,7 +3,7 @@
 **从模型 API 到工具调用：一个持续迭代的 Python Agent CLI。**  
 **From model APIs to tool use: an evolving Python Agent CLI.**
 
-Version **0.3.0** · Python **3.11+** · Command **`agent100`**
+Version **0.4.0** · Python **3.11+** · Command **`agent100`**
 
 [中文](#中文) · [English](#english)
 
@@ -28,6 +28,8 @@ Version **0.3.0** · Python **3.11+** · Command **`agent100`**
 | 执行控制 | 风险等级检查；聊天模式下，带副作用的工具执行前展示参数并请求确认 |
 | 失败恢复 | 区分临时失败、永久失败与结果未知，结合副作用和幂等能力决定是否重试 |
 | 上下文管理 | 增量估算 Token，达到阈值后请求精确计数，压缩旧消息并保留近期对话 |
+| 长期记忆 | 对话结束时提取用户信息与 AI 行为，使用 GLM Embedding-3 向量化并保存到本地 Qdrant；通过 `add`、`confirm`、`replace`、`ignore` 决策完成去重与更新 |
+| 记忆检索 | 模型在回答需要依赖以往记忆时调用工具，结合 `key + scope` 精确查询与向量相似度查询返回相关记忆 |
 | 任务规划 | 结构化计划、工具与依赖校验、计划确认、步骤状态跟踪及结果保存 |
 | 工程基础 | 结构化日志、模块化代码、pytest 测试、wheel 与源码发行包构建 |
 
@@ -51,9 +53,9 @@ python -m venv .venv
 .\.venv\Scripts\agent100.exe taskplan "搜索 Python 日志最佳实践并整理学习提纲"
 ```
 
-Web Search 功能基于 GLM 搜索引擎实现，必须配置 GLM API Key（环境变量名为 `ZAI_API_KEY`）；即使当前对话模型选择 DeepSeek，该配置仍不可省略。邮件工具另需配置 `QQ_SMTP_USERNAME` 和 `QQ_SMTP_AUTH_CODE`，后者是 SMTP 授权码，不是邮箱登录密码。模型和搜索调用使用你自己的服务账号，可能产生费用。
+Web Search 功能基于 GLM 搜索引擎实现，长期记忆使用 GLM Embedding-3 生成向量，两项功能都必须配置 GLM API Key（环境变量名为 `ZAI_API_KEY`）；即使当前对话模型选择 DeepSeek，该配置仍不可省略。邮件工具另需配置 `QQ_SMTP_USERNAME` 和 `QQ_SMTP_AUTH_CODE`，后者是 SMTP 授权码，不是邮箱登录密码。模型、搜索和向量化调用使用你自己的服务账号，可能产生费用。
 
-会话、日志和计划默认保存在本地 `data/`；可用 `LLM_CLI_DATA_DIR` 指定其他目录。不要提交真实 `.env` 或个人会话数据。
+会话、日志、计划和 Qdrant 记忆库默认保存在本地 `data/`；可用 `LLM_CLI_DATA_DIR` 指定其他目录。输入 `exit` 或 `quit` 正常结束聊天时，程序会整理本次运行产生的对话并更新长期记忆。不要提交真实 `.env`、个人会话或记忆数据。
 
 ### 代码导航
 
@@ -62,12 +64,13 @@ Web Search 功能基于 GLM 搜索引擎实现，必须配置 GLM API Key（环�
 | `src/ai_agent_learning/agent/` | Agent 循环、状态、停止策略与上下文管理 |
 | `src/ai_agent_learning/tools/` | 工具协议、注册、执行与恢复策略 |
 | `src/ai_agent_learning/planning/` | 计划生成、校验、执行与持久化 |
+| `src/ai_agent_learning/memory/` | 候选记忆提取、向量化、旧记忆检索、决策及 Qdrant 持久化 |
 | `src/ai_agent_learning/model.py` | GLM、DeepSeek 模型 API 适配与流式生成 |
 | `src/ai_agent_learning/ui/` | 终端展示与工具确认 |
 | `tests/` | 模型适配、Agent、工具、运行时与终端相关测试 |
 | `docs/` | 实现说明与设计细节 |
 
-实现说明：[GLM 接入](docs/glm-model-client.md) · [搜索工具](docs/web-search.md) · [上下文估算](docs/context-token-estimation.md) · [终端界面](docs/terminal-ui.md)
+实现说明：[GLM 接入](docs/glm-model-client.md) · [搜索工具](docs/web-search.md) · [长期记忆](docs/memory-system.md) · [上下文估算](docs/context-token-estimation.md) · [终端界面](docs/terminal-ui.md)
 
 ### 测试与打包
 
@@ -100,6 +103,8 @@ If you are hiring Agent developers, please contact me at [1774364027w@gmail.com]
 | Execution controls | Risk checks; chat mode displays arguments and requests approval before side-effecting tools run |
 | Failure recovery | Transient, permanent, and unknown-outcome failures; retry decisions account for side effects and idempotency |
 | Context management | Incremental token estimates, threshold-triggered exact counting, and history compaction retaining recent messages |
+| Long-term memory | Extracts durable user information and AI actions when a chat ends, embeds content with GLM Embedding-3, stores it in local Qdrant, and applies `add`, `confirm`, `replace`, or `ignore` decisions for updates and deduplication |
+| Memory retrieval | Lets the model call a tool when an answer depends on previous memory, combining exact `key + scope` lookup with vector similarity search |
 | Task planning | Structured plans, tool and dependency validation, plan approval, step status tracking, and saved results |
 | Engineering foundations | Structured logs, modular code, pytest tests, and wheel/source distribution builds |
 
@@ -123,17 +128,17 @@ On the first `agent100 config` run, the program detects that configuration is mi
 .\.venv\Scripts\agent100.exe taskplan "Search for Python logging practices and prepare a study outline"
 ```
 
-Web Search is powered by the GLM search engine and requires a GLM API key (`ZAI_API_KEY`); this configuration is mandatory even when DeepSeek is selected as the chat model. Email requires `QQ_SMTP_USERNAME` and `QQ_SMTP_AUTH_CODE` (an SMTP authorization code, not your mailbox password). Model and search requests use your own service account and may incur charges.
+Web Search is powered by the GLM search engine, and long-term memory uses GLM Embedding-3 for vectors. Both require a GLM API key (`ZAI_API_KEY`), even when DeepSeek is selected as the chat model. Email requires `QQ_SMTP_USERNAME` and `QQ_SMTP_AUTH_CODE` (an SMTP authorization code, not your mailbox password). Model, search, and embedding requests use your own service account and may incur charges.
 
-Sessions, logs, and plans are stored in `data/` by default. Set `LLM_CLI_DATA_DIR` to override the location. Keep real `.env` files and personal session data out of version control. The current terminal interface is primarily in Chinese.
+Sessions, logs, plans, and the local Qdrant memory database are stored in `data/` by default. Set `LLM_CLI_DATA_DIR` to override the location. When a chat ends normally with `exit` or `quit`, the program extracts memories from that run and updates long-term storage. Keep real `.env` files, personal sessions, and memory data out of version control. The current terminal interface is primarily in Chinese.
 
 ### Code map and development
 
-`agent/` contains the loop, state, policies, and context manager; `tools/` contains contracts and execution; `planning/` handles plans and step execution; `ui/` handles terminal interaction. These modules live under `src/ai_agent_learning/`. `model.py` contains the GLM and DeepSeek clients used by the CLI.
+`agent/` contains the loop, state, policies, and context manager; `tools/` contains contracts and execution; `planning/` handles plans and step execution; `memory/` handles extraction, embedding, retrieval, decisions, and Qdrant persistence; `ui/` handles terminal interaction. These modules live under `src/ai_agent_learning/`. `model.py` contains the GLM and DeepSeek clients used by the CLI.
 
 `tests/` covers model adapters, agent behavior, tools, runtime, and terminal behavior. `docs/` contains implementation notes, primarily in Chinese.
 
-Implementation notes: [GLM integration](docs/glm-model-client.md) · [Web search](docs/web-search.md) · [Context estimates](docs/context-token-estimation.md) · [Terminal UI](docs/terminal-ui.md)
+Implementation notes: [GLM integration](docs/glm-model-client.md) · [Web search](docs/web-search.md) · [Long-term memory](docs/memory-system.md) · [Context estimates](docs/context-token-estimation.md) · [Terminal UI](docs/terminal-ui.md)
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pytest build
