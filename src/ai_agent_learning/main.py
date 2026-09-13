@@ -10,6 +10,7 @@ from ai_agent_learning.agent.policy import AgentLimits, AgentPolicy
 from ai_agent_learning.agent.state import AgentRunResult, StopReason
 from ai_agent_learning.context import save_context, select_context
 from ai_agent_learning.logging_config import configure_logging
+from ai_agent_learning.memory.service import MemoryService
 from ai_agent_learning.model import DeepSeekClient, GlmModelClient
 from ai_agent_learning.model_config import (
     load_active_model,
@@ -122,12 +123,15 @@ def run_config() -> None:
 
 
 @asynccontextmanager
-async def create_runtime() -> AsyncIterator[tuple[GlmModelClient | DeepSeekClient, ToolRegistry, str]]:
+async def create_runtime() -> AsyncIterator[
+    tuple[GlmModelClient | DeepSeekClient, ToolRegistry, str]
+]:
     """只从当前配置文件选择模型，并管理客户端连接的生命周期。"""
     config = load_active_model()
     client_types = {"glm": GlmModelClient, "deepseek": DeepSeekClient}
     client = client_types[config.provider](
-        api_key=config.api_key, base_url=config.base_url,
+        api_key=config.api_key,
+        base_url=config.base_url,
     )
     try:
         # .env 为搜索、邮件等工具提供凭据；模型的四个字段始终只取自 config。
@@ -166,8 +170,10 @@ async def run_chat() -> None:
         )
 
         session = select_session(ui=ui)
+        memory_start_index = len(session.messages)
         context = select_context(session.session_id)
         context_manager.initialize_token_estimate(context.messages)
+        memory_service = MemoryService(client)
 
         ui.show_header(reasoning_id, session.name)
 
@@ -241,9 +247,23 @@ async def run_chat() -> None:
             if agent_result.response is None or agent_result.response.message is None:
                 raise RuntimeError("Agent 没有返回最终文本")
 
-        if session.messages:
-            save_session(session)
-            save_context(context)
+        try:
+            if session.messages:
+                save_session(session)
+                save_context(context)
+
+            new_messages = session.messages[memory_start_index:]
+            if new_messages:
+                ui.show_notice("正在整理本次对话记忆…")
+                try:
+                    decisions = await memory_service.save_memories(
+                        ModelRequest(messages=new_messages, model=reasoning_id)
+                    )
+                    ui.show_notice(f"本次对话记忆处理完成：{len(decisions)} 条")
+                except Exception as error:  # noqa: BLE001 -- 记忆失败不影响会话保存。
+                    ui.show_error(f"记忆保存失败：{error}")
+        finally:
+            await memory_service.close()
 
 
 async def run_taskplan(goal: str | None = None) -> None:
