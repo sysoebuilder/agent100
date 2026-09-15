@@ -3,7 +3,7 @@
 **从模型 API 到工具调用：一个持续迭代的 Python Agent CLI。**  
 **From model APIs to tool use: an evolving Python Agent CLI.**
 
-Version **0.4.0** · Python **3.11+** · Command **`agent100`**
+Version **0.4.1** · Python **3.11+** · Command **`agent100`**
 
 [中文](#中文) · [English](#english)
 
