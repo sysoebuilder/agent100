@@ -180,7 +180,6 @@ class QdrantMemoryStore:
         self,
         key: str,
         *,
-        scope: str | None = None,
         status: MemoryStatus = MemoryStatus.ACTIVE,
         limit: int = 10,
     ) -> list[StoredMemory]:
@@ -194,8 +193,6 @@ class QdrantMemoryStore:
             self._match_condition("key", key),
             self._match_condition("status", status.value),
         ]
-        if scope is not None:
-            conditions.append(self._match_condition("scope", scope))
         records, _ = await self._client.scroll(
             collection_name=self._collection_name,
             scroll_filter=models.Filter(must=conditions),
@@ -316,8 +313,6 @@ class QdrantMemoryStore:
         conditions: list[models.Condition] = [
             cls._match_condition("status", status.value)
         ]
-        if scope is not None:
-            conditions.append(cls._match_condition("scope", scope))
         if memory_type is not None:
             conditions.append(cls._match_condition("type", memory_type.value))
         return models.Filter(must=conditions)

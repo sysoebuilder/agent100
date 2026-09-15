@@ -43,7 +43,7 @@ SPEC = ToolSpec(
         "required": ["command", "working_directory"],
         "additionalProperties": False,
     },
-    has_side_effects=True,
+    has_side_effects=False,
     supports_idempotent_retry=False,
     manages_own_timeout=True,
 )

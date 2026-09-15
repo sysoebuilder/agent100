@@ -14,3 +14,6 @@ htmlcov/
 /src/data/
 /projects/
 /days/
+/raw/npc/
+/raw/.datasets-cache/
+/raw/.npc-import-checkpoint.json

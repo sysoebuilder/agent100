@@ -35,13 +35,6 @@ SPEC = ToolSpec(
                 },
                 "description": "需要从长期记忆中查找的信息，最多五条。",
             },
-            "scope": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100,
-                "pattern": r"\S",
-                "description": "有明确依据时提供的记忆范围；不确定时省略。",
-            },
             "key": {
                 "type": "string",
                 "minLength": 1,
@@ -62,7 +55,6 @@ SPEC = ToolSpec(
 
 async def handler(
     queries: list[str],
-    scope: str | None = None,
     key: str | None = None,
 ) -> dict[str, Any]:
     """合并 key 精确查询与向量查询结果，并按记忆 ID 去重。"""
@@ -71,7 +63,6 @@ async def handler(
     if not normalized_queries:
         raise ValueError("至少需要一条非空记忆查询")
 
-    normalized_scope = scope.strip() if scope else None
     normalized_key = key.strip() if key else None
     embedding = GlmEmbeddingClient()
     store = QdrantMemoryStore(vector_size=embedding.dimensions)
@@ -81,11 +72,7 @@ async def handler(
         await store.initialize()
 
         if normalized_key:
-            key_matches = await store.find_by_key(
-                normalized_key,
-                scope=normalized_scope,
-                limit=KEY_LIMIT,
-            )
+            key_matches = await store.find_by_key(normalized_key, limit=KEY_LIMIT)
             for memory in key_matches:
                 memories_by_id[memory.id] = {
                     "memory": memory.model_dump(mode="json"),
@@ -97,7 +84,6 @@ async def handler(
         for vector in vectors:
             vector_matches = await store.search(
                 vector,
-                scope=normalized_scope,
                 limit=VECTOR_LIMIT,
                 score_threshold=SCORE_THRESHOLD,
             )

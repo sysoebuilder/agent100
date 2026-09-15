@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class MemoryType(str, Enum):
+    ASSISTANT = "assistant"
     PREFERENCE = "preference"
     USER_FACT = "user_fact"
     LEARNING_STATE = "learning_state"

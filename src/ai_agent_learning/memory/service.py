@@ -20,7 +20,7 @@ from ai_agent_learning.memory.store import QdrantMemoryStore
 from ai_agent_learning.schema import Message, ModelRequest
 
 SIMILARITY_THRESHOLD = 0.5
-SIMILARITY_LIMIT = 5
+SIMILARITY_LIMIT = 10
 
 
 class MemoryCandidateClient(Protocol):
@@ -119,15 +119,11 @@ class MemoryService:
         candidate: MemoryCandidate,
         vector: list[float],
     ) -> list[StoredMemory]:
-        """合并相同 key 与语义相似的旧记忆，并按 ID 去重。"""
+        """全局合并相同 key 与语义相似的旧记忆，并按 ID 去重。"""
         _, store = self._ensure_resources()
-        key_matches = await store.find_by_key(
-            candidate.key,
-            scope=candidate.scope,
-        )
+        key_matches = await store.find_by_key(candidate.key)
         semantic_matches = await store.search(
             vector,
-            scope=candidate.scope,
             limit=SIMILARITY_LIMIT,
             score_threshold=SIMILARITY_THRESHOLD,
         )

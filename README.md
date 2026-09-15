@@ -29,7 +29,7 @@ Version **0.4.0** · Python **3.11+** · Command **`agent100`**
 | 失败恢复 | 区分临时失败、永久失败与结果未知，结合副作用和幂等能力决定是否重试 |
 | 上下文管理 | 增量估算 Token，达到阈值后请求精确计数，压缩旧消息并保留近期对话 |
 | 长期记忆 | 对话结束时提取用户信息与 AI 行为，使用 GLM Embedding-3 向量化并保存到本地 Qdrant；通过 `add`、`confirm`、`replace`、`ignore` 决策完成去重与更新 |
-| 记忆检索 | 模型在回答需要依赖以往记忆时调用工具，结合 `key + scope` 精确查询与向量相似度查询返回相关记忆 |
+| 记忆检索 | 模型在回答需要依赖以往记忆时调用工具，结合全局 `key` 精确查询与向量相似度查询返回相关记忆 |
 | 任务规划 | 结构化计划、工具与依赖校验、计划确认、步骤状态跟踪及结果保存 |
 | 工程基础 | 结构化日志、模块化代码、pytest 测试、wheel 与源码发行包构建 |
 
@@ -104,7 +104,7 @@ If you are hiring Agent developers, please contact me at [1774364027w@gmail.com]
 | Failure recovery | Transient, permanent, and unknown-outcome failures; retry decisions account for side effects and idempotency |
 | Context management | Incremental token estimates, threshold-triggered exact counting, and history compaction retaining recent messages |
 | Long-term memory | Extracts durable user information and AI actions when a chat ends, embeds content with GLM Embedding-3, stores it in local Qdrant, and applies `add`, `confirm`, `replace`, or `ignore` decisions for updates and deduplication |
-| Memory retrieval | Lets the model call a tool when an answer depends on previous memory, combining exact `key + scope` lookup with vector similarity search |
+| Memory retrieval | Lets the model call a tool when an answer depends on previous memory, combining global exact `key` lookup with vector similarity search |
 | Task planning | Structured plans, tool and dependency validation, plan approval, step status tracking, and saved results |
 | Engineering foundations | Structured logs, modular code, pytest tests, and wheel/source distribution builds |
 
